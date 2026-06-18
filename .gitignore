@@ -29,6 +29,7 @@ desktop.ini
 
 # Project
 .run/
+.cache/
 browser_profile/
 *.log
 .claude/

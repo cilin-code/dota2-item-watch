@@ -28,6 +28,21 @@ class FrontendBehaviorTests(unittest.TestCase):
         self.assertIn("成交点", source)
         self.assertNotIn("历史: \" + (data.results.history", source)
 
+    def test_initial_items_load_is_paginated_then_background_fills(self):
+        index_html = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
+        source = index_html.read_text(encoding="utf-8")
+
+        self.assertIn('/api/items?min_score=0&limit=" + firstPage + "&offset=0', source)
+        self.assertIn("loadRemainingItems(token, nextOffset", source)
+        self.assertIn("mergeItems(batch)", source)
+
+    def test_purchase_profit_percent_is_formatted_to_two_decimals(self):
+        index_html = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
+        source = index_html.read_text(encoding="utf-8")
+
+        self.assertIn("num(r.pnl_pct) + '%", source)
+        self.assertIn("r.net_sell_price", source)
+
 
 if __name__ == "__main__":
     unittest.main()

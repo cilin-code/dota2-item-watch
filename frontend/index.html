@@ -392,6 +392,7 @@ var _alertIds = new Set();
 var _triggeredAlerts = new Set();
 var _alertOnly = false;
 var _dataLoaded = false;
+var _itemsLoadToken = 0;
 
 async function loadFavorites() {
     try {
@@ -462,16 +463,50 @@ function applyScoreFilter() {
 }
 
 async function loadData() {
+    var token = ++_itemsLoadToken;
+    var firstPage = 50;
+    var nextOffset = 0;
     try {
-        var r = await fetch("/api/items?min_score=0");
+        var r = await fetch("/api/items?min_score=0&limit=" + firstPage + "&offset=0");
         var d = await r.json();
+        if (token !== _itemsLoadToken) return;
         _allItems = d.data || [];
+        nextOffset = _allItems.length;
         _dataLoaded = true;
         await loadFavorites();
         renderTable();
         loadAlertStates();
+        loadRemainingItems(token, nextOffset, d.total || _allItems.length, firstPage);
     } catch {
         document.getElementById("content").innerHTML = '<div class="empty">加载失败</div>';
+    }
+}
+
+function mergeItems(items) {
+    var existing = new Set(_allItems.map(function(it) { return it.id; }));
+    (items || []).forEach(function(item) {
+        if (!existing.has(item.id)) {
+            _allItems.push(item);
+            existing.add(item.id);
+        }
+    });
+}
+
+async function loadRemainingItems(token, offset, total, pageSize) {
+    while (token === _itemsLoadToken && offset < total) {
+        try {
+            var r = await fetch("/api/items?min_score=0&limit=" + pageSize + "&offset=" + offset);
+            var d = await r.json();
+            if (token !== _itemsLoadToken) return;
+            var batch = d.data || [];
+            if (!batch.length) return;
+            mergeItems(batch);
+            offset += batch.length;
+            total = d.total || total;
+            renderTable();
+        } catch(e) {
+            return;
+        }
     }
 }
 
@@ -539,8 +574,8 @@ async function openPurchaseList() {
             h += '<td>¥' + num(r.buy_price) + '</td>';
             h += '<td>' + r.quantity + '</td>';
             h += '<td>' + (r.buy_date || "-") + '</td>';
-            h += '<td>' + priceText(r.current_price) + '</td>';
-            h += '<td class="' + pnlCls + '">' + (r.pnl > 0 ? "+" : "") + num(r.pnl) + ' (' + (r.pnl_pct > 0 ? "+" : "") + r.pnl_pct + '%)</td>';
+            h += '<td>' + priceText(r.current_price) + (r.net_sell_price == null ? '' : '<div class="hash">税后 ' + priceText(r.net_sell_price) + '</div>') + '</td>';
+            h += '<td class="' + pnlCls + '">' + (r.pnl > 0 ? "+" : "") + num(r.pnl) + ' (' + (r.pnl_pct > 0 ? "+" : "") + num(r.pnl_pct) + '%)</td>';
             h += '<td>' + esc(r.notes || "-") + '</td>';
             h += '<td><button class="btn-delete" onclick="deletePurchase(' + r.id + ', this)" style="font-size:10px;width:24px;height:24px;padding:0">✕</button></td></tr>';
         });

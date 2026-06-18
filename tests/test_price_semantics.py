@@ -14,6 +14,7 @@ from price_semantics import (
     is_quote_snapshot,
     is_trade_snapshot,
     normalize_snapshot_type,
+    net_steam_sale_price,
     orderbook_lowest_price,
 )
 
@@ -39,6 +40,11 @@ class PriceSemanticsTests(unittest.TestCase):
                 {"price": 8.10, "quantity": 1},
             ]
         }), 8.10)
+
+    def test_net_steam_sale_price_applies_tax_rules(self):
+        self.assertEqual(net_steam_sale_price(2.0), 1.74)
+        self.assertEqual(net_steam_sale_price(1.0), 0.79)
+        self.assertIsNone(net_steam_sale_price(None))
 
 
 if __name__ == "__main__":

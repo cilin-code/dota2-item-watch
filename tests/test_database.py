@@ -133,6 +133,25 @@ class DatabaseTests(unittest.TestCase):
         self.assertGreaterEqual(result["total_deleted"], 6)
         self.assertTrue(all(value == 0 for value in counts.values()))
 
+    def test_purchase_profit_uses_after_tax_sale_proceeds(self):
+        async def scenario():
+            db = await database.get_db()
+            try:
+                item_id = await database.get_or_create_item(db, "Purchase Item", name_cn="Purchase Item")
+                await database.upsert_price(db, item_id, "steam", 2.0, 2.0, 1, "2026-01-01 01:00:00", snapshot_type=QUOTE_SNAPSHOT)
+                await database.add_purchase(db, item_id, 1.0, 2, "2026-01-02", "test")
+                rows = await database.get_purchases(db)
+            finally:
+                await db.close()
+            return rows
+
+        rows = run(with_temp_db(temp_test_dir(self._testMethodName), scenario))
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["current_price"], 2.0)
+        self.assertEqual(rows[0]["pnl"], 1.48)
+        self.assertEqual(rows[0]["pnl_pct"], 74.0)
+
 
 if __name__ == "__main__":
 

@@ -12,6 +12,9 @@ TRADE_SNAPSHOT = "trade"
 QUOTE_SNAPSHOT = "quote"
 QUOTE_LOW_TOLERANCE = 0.02
 QUOTE_HIGH_TOLERANCE = 0.03
+STEAM_TAX_NOMINAL = 0.13
+STEAM_TAX_THRESHOLD = 1.60
+STEAM_TAX_MIN_FEE = 0.208
 
 
 def normalize_snapshot_type(value: str | None) -> str:
@@ -39,6 +42,14 @@ def current_price_from_quote(record: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return price if price > 0 else None
+
+
+def net_steam_sale_price(price: float | None) -> float | None:
+    if price is None or price <= 0:
+        return None
+    if price >= STEAM_TAX_THRESHOLD:
+        return round(price * (1 - STEAM_TAX_NOMINAL), 2)
+    return round(max(price - STEAM_TAX_MIN_FEE, 0), 2)
 
 
 def orderbook_lowest_price(orderbook: dict[str, Any] | None) -> float | None:

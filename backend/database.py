@@ -8,7 +8,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiosqlite
-from price_semantics import QUOTE_SNAPSHOT, TRADE_SNAPSHOT, normalize_snapshot_type, snapshot_type_sql
+from price_semantics import (
+    QUOTE_SNAPSHOT,
+    STEAM_TAX_MIN_FEE,
+    STEAM_TAX_NOMINAL,
+    STEAM_TAX_THRESHOLD,
+    TRADE_SNAPSHOT,
+    normalize_snapshot_type,
+    snapshot_type_sql,
+)
 
 ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 DB_PATH = os.path.join(ROOT_DIR, "data.db")
@@ -421,8 +429,21 @@ async def add_purchase(db: aiosqlite.Connection, item_id: int, buy_price: float,
 async def get_purchases(db: aiosqlite.Connection) -> list[dict[str, Any]]:
     cur = await db.execute(f"""
         SELECT p.*, i.market_hash_name, i.name_cn, i.icon_url, q.sell_price AS current_price,
-               CASE WHEN q.sell_price IS NOT NULL THEN (q.sell_price - p.buy_price) * p.quantity ELSE NULL END AS pnl,
-               CASE WHEN q.sell_price IS NOT NULL AND p.buy_price > 0 THEN (q.sell_price - p.buy_price) / p.buy_price * 100 ELSE NULL END AS pnl_pct
+               CASE
+                   WHEN q.sell_price IS NULL THEN NULL
+                   WHEN q.sell_price >= {STEAM_TAX_THRESHOLD} THEN ROUND((q.sell_price * (1 - {STEAM_TAX_NOMINAL}) - p.buy_price) * p.quantity, 2)
+                   ELSE ROUND((MAX(q.sell_price - {STEAM_TAX_MIN_FEE}, 0) - p.buy_price) * p.quantity, 2)
+               END AS pnl,
+               CASE
+                   WHEN q.sell_price IS NULL OR p.buy_price <= 0 THEN NULL
+                   WHEN q.sell_price >= {STEAM_TAX_THRESHOLD} THEN ROUND((q.sell_price * (1 - {STEAM_TAX_NOMINAL}) - p.buy_price) / p.buy_price * 100, 2)
+                   ELSE ROUND((MAX(q.sell_price - {STEAM_TAX_MIN_FEE}, 0) - p.buy_price) / p.buy_price * 100, 2)
+               END AS pnl_pct,
+               CASE
+                   WHEN q.sell_price IS NULL THEN NULL
+                   WHEN q.sell_price >= {STEAM_TAX_THRESHOLD} THEN ROUND(q.sell_price * (1 - {STEAM_TAX_NOMINAL}), 2)
+                   ELSE ROUND(MAX(q.sell_price - {STEAM_TAX_MIN_FEE}, 0), 2)
+               END AS net_sell_price
         FROM purchase_records p
         JOIN items i ON i.id = p.item_id
         LEFT JOIN price_snapshots q ON q.id = (

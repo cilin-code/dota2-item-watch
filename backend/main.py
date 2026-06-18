@@ -4,7 +4,7 @@ import os
 import asyncio
 import time as _time
 from datetime import datetime, timedelta, timezone
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Body, FastAPI, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -50,6 +50,7 @@ _cache = {}
 _cache_version = 0
 _cache_ttl = 600
 _backtest_cache = {}
+_items_cache_task: asyncio.Task | None = None
 _update_running = False
 _update_task: asyncio.Task | None = None
 _update_subscribers: set[asyncio.Queue] = set()
@@ -57,11 +58,91 @@ _update_events: list[dict] = []
 _update_event_limit = 500
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+ITEMS_CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache", "items_cache.json")
 
 
 def _log(section: str, message: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {_pad_display(section, 4)} | {message}", flush=True)
+
+
+def _page_items_response(items: list[dict], *, limit: int = 0, offset: int = 0) -> dict:
+    total = len(items)
+    page = items[offset:] if offset else items
+    if limit:
+        page = page[:limit]
+    return {"code": 0, "data": page, "total": total, "count": len(page), "limit": limit, "offset": offset}
+
+
+def _items_cache_key(min_score: int = 0, q: str = "") -> str:
+    return f"items:{min_score}:{q}:all"
+
+
+def _load_items_cache_file() -> None:
+    try:
+        if not os.path.exists(ITEMS_CACHE_PATH):
+            return
+        with open(ITEMS_CACHE_PATH, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        items = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return
+        full_resp = {"code": 0, "data": items, "total": len(items)}
+        _cache[_items_cache_key()] = (_time.time(), full_resp, _cache_version)
+        _log("缓存", f"已加载首页缓存 | {len(items)} 件")
+    except Exception as exc:
+        _log("缓存", f"读取首页缓存失败 | {exc}")
+
+
+def _save_items_cache_file(full_resp: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(ITEMS_CACHE_PATH), exist_ok=True)
+        with open(ITEMS_CACHE_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"generated_at": _time.time(), "data": full_resp.get("data", [])}, fh, ensure_ascii=False)
+    except Exception as exc:
+        _log("缓存", f"写入首页缓存失败 | {exc}")
+
+
+async def _warm_items_cache() -> None:
+    db = await get_db()
+    try:
+        rows = await get_steam_history(db, days=90)
+        engine.load_history(rows)
+        results = engine.recommendations(min_score=0)
+        cursor = await db.execute("SELECT id, updated_at FROM items WHERE updated_at IS NOT NULL")
+        fetch_times = {row[0]: row[1] for row in await cursor.fetchall()}
+        all_items = await get_monitored_items(db)
+        item_meta = {item["id"]: item for item in all_items}
+        for r in results:
+            if r["id"] in fetch_times:
+                r["updated_at"] = fetch_times[r["id"]]
+            r["current_price"] = current_price_from_quote(item_meta.get(r["id"], {}))
+        existing_ids = {r["id"] for r in results}
+        for item in all_items:
+            if item["id"] not in existing_ids:
+                results.append({
+                    "id": item["id"],
+                    "market_hash_name": item["market_hash_name"],
+                    "name_cn": item.get("name_cn") or item["market_hash_name"],
+                    "icon_url": item.get("icon_url") or "",
+                    "rarity": item.get("rarity") or "",
+                    "current_price": current_price_from_quote(item),
+                    "volume_24h": 0,
+                    "updated_at": item.get("latest_quote_at") or item.get("updated_at"),
+                    "trend": {},
+                    "score": 0,
+                    "recommendation": "-",
+                    "reason": "暂无价格数据",
+                    "analysis": {},
+                })
+        full_resp = {"code": 0, "data": results, "total": len(results)}
+        _cache[_items_cache_key()] = (_time.time(), full_resp, _cache_version)
+        _save_items_cache_file(full_resp)
+        _log("缓存", f"首页缓存已预热 | {len(results)} 件")
+    except Exception as exc:
+        _log("缓存", f"首页缓存预热失败 | {exc}")
+    finally:
+        await db.close()
 
 
 # ------------------------------------------------------------------
@@ -70,8 +151,17 @@ def _log(section: str, message: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _items_cache_task
     await init_db()
-    yield
+    _load_items_cache_file()
+    _items_cache_task = asyncio.create_task(_warm_items_cache())
+    try:
+        yield
+    finally:
+        if _items_cache_task and not _items_cache_task.done():
+            _items_cache_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _items_cache_task
 
 
 app = FastAPI(title="饰品监测", lifespan=lifespan)
@@ -101,15 +191,20 @@ async def item_page(item_id: int):
 # ------------------------------------------------------------------
 
 @app.get("/api/items")
-async def get_items(min_score: int = Query(0), q: str = Query("")):
+async def get_items(
+    min_score: int = Query(0),
+    q: str = Query(""),
+    limit: int = Query(0, ge=0, le=1000),
+    offset: int = Query(0, ge=0),
+):
     """获取所有饰品的分析结果。"""
-    cache_key = f"items:{min_score}:{q}"
+    cache_key = _items_cache_key(min_score, q)
     now = _time.time()
     if cache_key in _cache and now - _cache[cache_key][0] < _cache_ttl:
         # verify no new data since cache
         cache_ver = _cache[cache_key][2] if len(_cache[cache_key]) > 2 else 0
         if cache_ver == _cache_version:
-            return _cache[cache_key][1]
+            return _page_items_response(_cache[cache_key][1]["data"], limit=limit, offset=offset)
     db = await get_db()
     try:
         rows = await get_steam_history(db, days=90)
@@ -157,7 +252,9 @@ async def get_items(min_score: int = Query(0), q: str = Query("")):
             ]
         resp = {"code": 0, "data": results, "total": len(results)}
         _cache[cache_key] = (now, resp, _cache_version)
-        return resp
+        if min_score == 0 and not q:
+            _save_items_cache_file(resp)
+        return _page_items_response(results, limit=limit, offset=offset)
     finally:
         await db.close()
 

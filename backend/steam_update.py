@@ -161,10 +161,6 @@ class SteamUpdateRunner:
                 try:
                     items = await disc_scraper.search_items(kw, limit=100 if kw == "" else 10)
                     label = kw or "热门"
-                    log_sink(
-                        "发现",
-                        f"{_pad_display(label, 10)} | 搜索结果 {len(items):>3} | 热门命中 {len(hot_item_ids):>3}",
-                    )
                     await event_sink({
                         "type": "phase",
                         "platform": "steam",
@@ -172,9 +168,12 @@ class SteamUpdateRunner:
                         "keyword": kw,
                         "found": len(items),
                     })
+                    before_count = len(hot_item_ids)
+                    duplicate_count = 0
                     for item in items:
                         mhn = item.get("market_hash_name", "")
                         if mhn in seen:
+                            duplicate_count += 1
                             continue
                         seen.add(mhn)
                         item_id = await get_or_create_item(
@@ -193,6 +192,12 @@ class SteamUpdateRunner:
                             "name_cn": item.get("name_cn") or "",
                             "icon_url": item.get("icon_url") or "",
                         })
+                    new_count = len(hot_item_ids) - before_count
+                    log_sink(
+                        "发现",
+                        f"{_pad_display(label, 10)} | 搜索结果 {len(items):>3} | "
+                        f"本次新增 {new_count:>3} | 重复 {duplicate_count:>3} | 累计命中 {len(hot_item_ids):>3}",
+                    )
                 except Exception as exc:
                     log_sink("发现", f"异常 | {kw or '热门'} | {exc}")
         return hot_item_ids

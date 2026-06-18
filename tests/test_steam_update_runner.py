@@ -19,7 +19,58 @@ class FakeTrendEngine:
         return [{"id": 1, "score": 10}, {"id": 2, "score": 75}, {"id": 3, "score": 55}, {"id": 4, "score": 8}]
 
 
+class FakeDiscoverScraper:
+    def __init__(self, delay=0):
+        self.delay = delay
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    async def search_items(self, keyword, limit=10):
+        if keyword == "":
+            return [
+                {"market_hash_name": "popular-a", "name_cn": "热门A"},
+                {"market_hash_name": "popular-b", "name_cn": "热门B"},
+            ]
+        if keyword == "Treasure":
+            return [
+                {"market_hash_name": "popular-b", "name_cn": "热门B"},
+                {"market_hash_name": "treasure-c", "name_cn": "宝箱C"},
+            ]
+        return []
+
+
 class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discovery_log_reports_after_processing_counts(self):
+        runner = SteamUpdateRunner(scraper_factory=FakeDiscoverScraper, trend_engine=FakeTrendEngine())
+        logs = []
+        ids = {"popular-a": 1, "popular-b": 2, "treasure-c": 3}
+
+        async def fake_get_or_create(_db, market_hash_name, **_kwargs):
+            return ids[market_hash_name]
+
+        with (
+            patch("steam_update.get_or_create_item", new=AsyncMock(side_effect=fake_get_or_create)),
+            patch("steam_update.mark_item_hot_seen", new=AsyncMock()),
+        ):
+            hot_ids = await runner._discover_items(
+                None,
+                event_sink=AsyncMock(),
+                log_sink=lambda section, message: logs.append((section, message)),
+            )
+
+        self.assertEqual(hot_ids, {1, 2, 3})
+        self.assertIn("热门", logs[1][1])
+        self.assertIn("本次新增   2", logs[1][1])
+        self.assertIn("累计命中   2", logs[1][1])
+        self.assertIn("Treasure", logs[2][1])
+        self.assertIn("本次新增   1", logs[2][1])
+        self.assertIn("重复   1", logs[2][1])
+        self.assertIn("累计命中   3", logs[2][1])
+
     async def test_visible_scope_includes_hot_items(self):
         items = [
             {"id": 1, "market_hash_name": "visible", "favorite": 0, "update_after": None},

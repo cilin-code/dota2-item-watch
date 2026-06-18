@@ -42,9 +42,9 @@ from database import (
 )
 from display import _display_width, _pad_display, _price_label, _short_name, _truncate_display
 from engine import engine
-from price_semantics import QUOTE_SNAPSHOT, current_price_from_quote
+from price_semantics import QUOTE_SNAPSHOT, current_price_from_quote, validate_quote_price
 from scrapers import SteamScraper
-from steam_update import SteamUpdateOptions, SteamUpdateRunner, _validate_quote_price, save_steam_history
+from steam_update import SteamUpdateOptions, SteamUpdateRunner, save_steam_history
 
 _cache = {}
 _cache_version = 0
@@ -297,7 +297,7 @@ async def fetch_single(item_id: int):
             price = await scraper.get_price(row[0])
             listing_result = await save_steam_history(db, scraper, item_id, row[0])
             history_count = listing_result["history_count"]
-            checked_price, quote_status = _validate_quote_price(price, listing_result.get("orderbook"))
+            checked_price, quote_status = validate_quote_price(price, listing_result.get("orderbook"))
             if checked_price and checked_price.get("sell_price"):
                 now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 two_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
@@ -617,7 +617,7 @@ async def add_item(
                     )
                     await db.commit()
                 price_data = await scraper.get_price(market_hash_name)
-                checked_price, quote_status = _validate_quote_price(price_data, listing.get("orderbook"))
+                checked_price, quote_status = validate_quote_price(price_data, listing.get("orderbook"))
                 if checked_price and checked_price.get("sell_price"):
                     now_ts3 = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                     await upsert_price(

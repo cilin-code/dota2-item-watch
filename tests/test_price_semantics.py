@@ -14,6 +14,7 @@ from price_semantics import (
     is_quote_snapshot,
     is_trade_snapshot,
     normalize_snapshot_type,
+    orderbook_lowest_price,
 )
 
 
@@ -28,6 +29,16 @@ class PriceSemanticsTests(unittest.TestCase):
         self.assertIsNone(current_price_from_quote({"sell_price": 7.89}))
         self.assertIsNone(current_price_from_quote({"latest_quote_price": 0}))
         self.assertTrue(is_quote_snapshot(QUOTE_SNAPSHOT))
+
+    def test_orderbook_lowest_price_uses_valid_positive_levels(self):
+        self.assertEqual(orderbook_lowest_price({
+            "levels": [
+                {"price": "bad", "quantity": 5},
+                {"price": 0, "quantity": 5},
+                {"price": 8.14, "quantity": 2},
+                {"price": 8.10, "quantity": 1},
+            ]
+        }), 8.10)
 
 
 if __name__ == "__main__":

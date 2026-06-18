@@ -23,15 +23,11 @@ from database import (
 )
 from display import _pad_display, _price_label
 from engine import engine
-from price_semantics import QUOTE_SNAPSHOT
+from price_semantics import QUOTE_SNAPSHOT, validate_quote_price
 from scrapers import SteamScraper
 
 EventSink = Callable[[dict], Awaitable[None]]
 LogSink = Callable[[str, str], None]
-
-QUOTE_LOW_TOLERANCE = 0.02
-QUOTE_HIGH_TOLERANCE = 0.03
-
 
 @dataclass(slots=True)
 class SteamUpdateOptions:
@@ -48,42 +44,6 @@ def _noop_log(section: str, message: str) -> None:
 
 async def _noop_event(data: dict) -> None:
     return None
-
-
-def _orderbook_lowest_price(orderbook: dict | None) -> float | None:
-    if not isinstance(orderbook, dict):
-        return None
-    levels = orderbook.get("levels")
-    if not isinstance(levels, list) or not levels:
-        return None
-    prices = []
-    for level in levels:
-        try:
-            price = float(level.get("price"))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        if price > 0:
-            prices.append(price)
-    return min(prices) if prices else None
-
-
-def _validate_quote_price(price_data: dict | None, orderbook: dict | None) -> tuple[dict | None, str]:
-    if not price_data or not price_data.get("sell_price"):
-        return None, "missing"
-    checked = dict(price_data)
-    checked.setdefault("quote_source", "priceoverview")
-    orderbook_low = _orderbook_lowest_price(orderbook)
-    if orderbook_low is None:
-        return checked, "unchecked"
-
-    quote_price = float(checked["sell_price"])
-    if quote_price < orderbook_low * (1 - QUOTE_LOW_TOLERANCE):
-        checked["orderbook_lowest"] = orderbook_low
-        return checked, f"priceoverview_primary_low quote={quote_price:.2f} orderbook={orderbook_low:.2f}"
-    if quote_price > orderbook_low * (1 + QUOTE_HIGH_TOLERANCE):
-        checked["orderbook_lowest"] = orderbook_low
-        return checked, f"priceoverview_primary_high quote={quote_price:.2f} orderbook={orderbook_low:.2f}"
-    return checked, "ok"
 
 
 async def save_steam_history(db, scraper: SteamScraper, item_id: int, market_hash_name: str) -> dict:
@@ -272,7 +232,7 @@ class SteamUpdateRunner:
                     history_count += h_count
                 except Exception:
                     pass
-                checked_price, quote_status = _validate_quote_price(price_data, listing_result.get("orderbook"))
+                checked_price, quote_status = validate_quote_price(price_data, listing_result.get("orderbook"))
                 if checked_price and checked_price.get("sell_price"):
                     two_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
                     cursor_b = await db.execute(

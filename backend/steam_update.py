@@ -23,6 +23,7 @@ from database import (
 )
 from display import _pad_display, _price_label
 from engine import engine
+from price_semantics import QUOTE_SNAPSHOT
 from scrapers import SteamScraper
 
 EventSink = Callable[[dict], Awaitable[None]]
@@ -275,8 +276,8 @@ class SteamUpdateRunner:
                 if checked_price and checked_price.get("sell_price"):
                     two_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
                     cursor_b = await db.execute(
-                        "SELECT COUNT(*) FROM price_snapshots WHERE item_id = ? AND platform = ? AND snapshot_type = 'quote' AND updated_at >= ?",
-                        (item["id"], "steam", two_min_ago),
+                        "SELECT COUNT(*) FROM price_snapshots WHERE item_id = ? AND platform = ? AND snapshot_type = ? AND updated_at >= ?",
+                        (item["id"], "steam", QUOTE_SNAPSHOT, two_min_ago),
                     )
                     if (await cursor_b.fetchone())[0] == 0:
                         await upsert_price(
@@ -287,7 +288,7 @@ class SteamUpdateRunner:
                             checked_price.get("sell_price"),
                             checked_price.get("volume_24h", 0),
                             now_ts,
-                            snapshot_type="quote",
+                            snapshot_type=QUOTE_SNAPSHOT,
                         )
                     price_text = _price_label(checked_price.get("sell_price"))
                     count += 1

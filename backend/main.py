@@ -42,6 +42,7 @@ from database import (
 )
 from display import _display_width, _pad_display, _price_label, _short_name, _truncate_display
 from engine import engine
+from price_semantics import QUOTE_SNAPSHOT, current_price_from_quote
 from scrapers import SteamScraper
 from steam_update import SteamUpdateOptions, SteamUpdateRunner, _validate_quote_price, save_steam_history
 
@@ -128,7 +129,7 @@ async def get_items(min_score: int = Query(0), q: str = Query("")):
         item_meta = {item["id"]: item for item in all_items}
         for r in results:
             meta = item_meta.get(r["id"], {})
-            r["current_price"] = meta.get("latest_quote_price")
+            r["current_price"] = current_price_from_quote(meta)
         for item in all_items:
             if item["id"] not in existing_ids:
                 results.append({
@@ -137,7 +138,7 @@ async def get_items(min_score: int = Query(0), q: str = Query("")):
                     "name_cn": item.get("name_cn") or item["market_hash_name"],
                     "icon_url": item.get("icon_url") or "",
                     "rarity": item.get("rarity") or "",
-                    "current_price": item.get("latest_quote_price"),
+                    "current_price": current_price_from_quote(item),
                     "volume_24h": 0,
                     "updated_at": item.get("latest_quote_at") or item.get("updated_at"),
                     "trend": {},
@@ -200,7 +201,7 @@ async def get_item_detail(item_id: int):
                 "name_cn": item.get("name_cn") or item["market_hash_name"],
                 "icon_url": item.get("icon_url") or "",
                 "rarity": item.get("rarity") or "",
-                "current_price": item.get("latest_quote_price"),
+                "current_price": current_price_from_quote(item),
                 "volume_24h": 0,
                 "updated_at": item.get("latest_quote_at") or item.get("updated_at"),
                 "trend": {},
@@ -210,7 +211,7 @@ async def get_item_detail(item_id: int):
                 "analysis": {},
             }
         target["daily"] = daily_rows
-        target["current_price"] = item.get("latest_quote_price")
+        target["current_price"] = current_price_from_quote(item)
         cursor2 = await db.execute("SELECT updated_at FROM items WHERE id = ?", (item_id,))
         row2 = await cursor2.fetchone()
         if row2 and row2[0]:
@@ -301,8 +302,8 @@ async def fetch_single(item_id: int):
                 now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 two_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S")
                 cursor2 = await db.execute(
-                    "SELECT COUNT(*) FROM price_snapshots WHERE item_id = ? AND platform = ? AND snapshot_type = 'quote' AND updated_at >= ?",
-                    (item_id, "steam", two_min_ago),
+                    "SELECT COUNT(*) FROM price_snapshots WHERE item_id = ? AND platform = ? AND snapshot_type = ? AND updated_at >= ?",
+                    (item_id, "steam", QUOTE_SNAPSHOT, two_min_ago),
                 )
                 if (await cursor2.fetchone())[0] == 0:
                     await upsert_price(
@@ -311,7 +312,7 @@ async def fetch_single(item_id: int):
                         checked_price.get("sell_price"),
                         checked_price.get("volume_24h", 0),
                         now_ts,
-                        snapshot_type="quote",
+                        snapshot_type=QUOTE_SNAPSHOT,
                     )
                 _log("单刷", f"现价 | {_short_name(name_cn)} | {_price_label(checked_price.get('sell_price'))} | {quote_status}")
             else:
@@ -625,7 +626,7 @@ async def add_item(
                         sell_price=checked_price["sell_price"],
                         volume_24h=checked_price.get("volume_24h") or 0,
                         updated_at=now_ts3,
-                        snapshot_type="quote",
+                        snapshot_type=QUOTE_SNAPSHOT,
                     )
                     await update_item_market_metadata(
                         db,

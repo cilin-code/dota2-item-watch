@@ -11,6 +11,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import database
+from price_semantics import QUOTE_SNAPSHOT
 
 
 def run(coro):
@@ -65,20 +66,27 @@ class DatabaseTests(unittest.TestCase):
             try:
                 item_id = await database.get_or_create_item(db, "History Item", name_cn="History Item")
                 await database.upsert_price(db, item_id, "steam", 1.0, 1.0, 2, "2026-01-01 01:00:00")
-                await database.upsert_price(db, item_id, "steam", 3.0, 3.0, 4, "2026-01-01 12:00:00", snapshot_type="quote")
+                await database.upsert_price(db, item_id, "steam", 3.0, 3.0, 4, "2026-01-01 12:00:00", snapshot_type=QUOTE_SNAPSHOT)
                 await database.compute_daily_summary(db, item_id)
                 await db.commit()
 
                 history = await database.get_item_history(db, item_id, days=3650)
+                steam_history = await database.get_steam_history(db, days=3650)
+                backtest_history = await database.get_backtest_history(db, days=3650)
                 summary = await database.get_daily_summary(db, item_id, days=3650)
             finally:
                 await db.close()
-            return history, summary
+            return history, steam_history, backtest_history, summary
 
-        history, summary = run(with_temp_db(temp_test_dir(self._testMethodName), scenario))
+        history, steam_history, backtest_history, summary = run(with_temp_db(temp_test_dir(self._testMethodName), scenario))
 
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["sell_price"], 1.0)
+        self.assertEqual(len(steam_history), 1)
+        self.assertEqual(steam_history[0]["sell_price"], 1.0)
+        self.assertEqual(steam_history[0]["latest_quote_price"], 3.0)
+        self.assertEqual(len(backtest_history), 1)
+        self.assertEqual(backtest_history[0]["sell_price"], 1.0)
         self.assertEqual(summary[0]["avg_price"], 1.0)
         self.assertEqual(summary[0]["snapshot_count"], 1)
 
@@ -88,7 +96,7 @@ class DatabaseTests(unittest.TestCase):
             try:
                 item_id = await database.get_or_create_item(db, "Alert Item", name_cn="预警饰品")
                 await database.upsert_price(db, item_id, "steam", 1.2, 1.2, 3, "2026-01-01 01:00:00")
-                await database.upsert_price(db, item_id, "steam", 0.8, 0.8, 3, "2026-01-02 01:00:00", snapshot_type="quote")
+                await database.upsert_price(db, item_id, "steam", 0.8, 0.8, 3, "2026-01-02 01:00:00", snapshot_type=QUOTE_SNAPSHOT)
                 await database.set_alert(db, item_id, 1.0)
                 rows = await database.get_triggered_alerts(db)
             finally:

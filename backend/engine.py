@@ -6,6 +6,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import mean, stdev
 
+from price_semantics import current_price_from_quote
+
 
 class TrendEngine:
     WINDOWS = (3, 7, 15, 30, 60, 90)
@@ -139,7 +141,7 @@ class TrendEngine:
             "name_cn": latest.get("name_cn") or latest.get("market_hash_name", ""),
             "icon_url": latest.get("icon_url") or "",
             "rarity": latest.get("rarity") or "",
-            "current_price": latest.get("latest_quote_price") if latest.get("latest_quote_price") is not None else None,
+            "current_price": current_price_from_quote(latest),
             "volume_24h": volume_24h,
             "updated_at": latest.get("updated_at"),
             "trend": trend,

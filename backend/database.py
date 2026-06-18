@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiosqlite
+from price_semantics import QUOTE_SNAPSHOT, TRADE_SNAPSHOT, normalize_snapshot_type, snapshot_type_sql
 
 ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 DB_PATH = os.path.join(ROOT_DIR, "data.db")
@@ -140,7 +141,7 @@ async def _ensure_columns(db: aiosqlite.Connection) -> None:
             await db.execute(sql)
     snap_cols = await cols("price_snapshots")
     if "snapshot_type" not in snap_cols:
-        await db.execute("ALTER TABLE price_snapshots ADD COLUMN snapshot_type TEXT DEFAULT 'trade'")
+        await db.execute(f"ALTER TABLE price_snapshots ADD COLUMN snapshot_type TEXT DEFAULT '{TRADE_SNAPSHOT}'")
 
 
 async def get_or_create_item(db: aiosqlite.Connection, market_hash_name: str, *, name_cn: str = "", icon_url: str = "", rarity: str = "", hero: str = "", slot: str = "", quality: str = "") -> int:
@@ -166,13 +167,13 @@ async def get_or_create_item(db: aiosqlite.Connection, market_hash_name: str, *,
     return int(cur.lastrowid)
 
 
-async def upsert_price(db: aiosqlite.Connection, item_id: int, platform: str, buy_price: float | None, sell_price: float | None, volume_24h: int = 0, updated_at: str | None = None, *, snapshot_type: str = "trade") -> int:
+async def upsert_price(db: aiosqlite.Connection, item_id: int, platform: str, buy_price: float | None, sell_price: float | None, volume_24h: int = 0, updated_at: str | None = None, *, snapshot_type: str = TRADE_SNAPSHOT) -> int:
     updated_at = updated_at or _utc_now()
-    snapshot_type = snapshot_type or "trade"
+    snapshot_type = normalize_snapshot_type(snapshot_type)
     cur = await db.execute(
-        """
+        f"""
         SELECT id FROM price_snapshots
-        WHERE item_id = ? AND platform = ? AND COALESCE(snapshot_type, 'trade') = ? AND updated_at = ?
+        WHERE item_id = ? AND platform = ? AND {snapshot_type_sql()} = ? AND updated_at = ?
         LIMIT 1
         """,
         (item_id, platform, snapshot_type, updated_at),
@@ -194,7 +195,7 @@ async def upsert_price(db: aiosqlite.Connection, item_id: int, platform: str, bu
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (item_id, platform, buy_price, sell_price, int(volume_24h or 0), updated_at, snapshot_type))
         row_id = int(cur.lastrowid)
-    if snapshot_type == "quote":
+    if snapshot_type == QUOTE_SNAPSHOT:
         await db.execute("UPDATE items SET updated_at = ?, fetched_at = ? WHERE id = ?", (updated_at, updated_at, item_id))
     return row_id
 
@@ -209,12 +210,12 @@ async def update_item_market_metadata(db: aiosqlite.Connection, item_id: int, *,
 
 
 async def get_monitored_items(db: aiosqlite.Connection, limit: int | None = None) -> list[dict[str, Any]]:
-    sql = """
+    sql = f"""
         SELECT i.*, q.sell_price AS latest_quote_price, q.updated_at AS latest_quote_at
         FROM items i
         LEFT JOIN price_snapshots q ON q.id = (
             SELECT ps.id FROM price_snapshots ps
-            WHERE ps.item_id = i.id AND ps.snapshot_type = 'quote'
+            WHERE ps.item_id = i.id AND ps.snapshot_type = '{QUOTE_SNAPSHOT}'
             ORDER BY ps.updated_at DESC, ps.id DESC LIMIT 1
         )
         ORDER BY i.favorite DESC, i.id ASC
@@ -228,12 +229,12 @@ async def get_monitored_items(db: aiosqlite.Connection, limit: int | None = None
 
 
 async def get_item_by_id(db: aiosqlite.Connection, item_id: int) -> dict[str, Any] | None:
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT i.*, q.sell_price AS latest_quote_price, q.updated_at AS latest_quote_at
         FROM items i
         LEFT JOIN price_snapshots q ON q.id = (
             SELECT ps.id FROM price_snapshots ps
-            WHERE ps.item_id = i.id AND ps.snapshot_type = 'quote'
+            WHERE ps.item_id = i.id AND ps.snapshot_type = '{QUOTE_SNAPSHOT}'
             ORDER BY ps.updated_at DESC, ps.id DESC LIMIT 1
         )
         WHERE i.id = ?
@@ -243,7 +244,7 @@ async def get_item_by_id(db: aiosqlite.Connection, item_id: int) -> dict[str, An
 
 async def get_steam_history(db: aiosqlite.Connection, days: int = 90) -> list[dict[str, Any]]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT i.id, i.market_hash_name, i.name_cn, i.icon_url, i.rarity, i.orderbook_json, i.orderbook_updated_at,
                q.sell_price AS latest_quote_price, q.updated_at AS latest_quote_at,
                ps.buy_price, ps.sell_price, ps.volume_24h, ps.updated_at
@@ -251,10 +252,10 @@ async def get_steam_history(db: aiosqlite.Connection, days: int = 90) -> list[di
         JOIN items i ON i.id = ps.item_id
         LEFT JOIN price_snapshots q ON q.id = (
             SELECT q2.id FROM price_snapshots q2
-            WHERE q2.item_id = i.id AND q2.snapshot_type = 'quote'
+            WHERE q2.item_id = i.id AND q2.snapshot_type = '{QUOTE_SNAPSHOT}'
             ORDER BY q2.updated_at DESC, q2.id DESC LIMIT 1
         )
-        WHERE ps.platform = 'steam' AND COALESCE(ps.snapshot_type, 'trade') = 'trade' AND ps.updated_at >= ?
+        WHERE ps.platform = 'steam' AND {snapshot_type_sql('ps.snapshot_type')} = '{TRADE_SNAPSHOT}' AND ps.updated_at >= ?
         ORDER BY i.id ASC, ps.updated_at ASC, ps.id ASC
     """, (since,))
     return [dict(r) for r in await cur.fetchall()]
@@ -262,12 +263,12 @@ async def get_steam_history(db: aiosqlite.Connection, days: int = 90) -> list[di
 
 async def get_backtest_history(db: aiosqlite.Connection, days: int = 360) -> list[dict[str, Any]]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT i.id, i.market_hash_name, i.name_cn, i.icon_url, i.rarity,
                ps.buy_price, ps.sell_price, ps.volume_24h, ps.updated_at
         FROM price_snapshots ps
         JOIN items i ON i.id = ps.item_id
-        WHERE ps.platform = 'steam' AND COALESCE(ps.snapshot_type, 'trade') = 'trade' AND ps.updated_at >= ?
+        WHERE ps.platform = 'steam' AND {snapshot_type_sql('ps.snapshot_type')} = '{TRADE_SNAPSHOT}' AND ps.updated_at >= ?
         ORDER BY i.id ASC, ps.updated_at ASC, ps.id ASC
     """, (since,))
     return [dict(r) for r in await cur.fetchall()]
@@ -275,10 +276,10 @@ async def get_backtest_history(db: aiosqlite.Connection, days: int = 360) -> lis
 
 async def get_item_history(db: aiosqlite.Connection, item_id: int, days: int = 90) -> list[dict[str, Any]]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT id, item_id, platform, buy_price, sell_price, volume_24h, updated_at, snapshot_type
         FROM price_snapshots
-        WHERE item_id = ? AND COALESCE(snapshot_type, 'trade') = 'trade' AND updated_at >= ?
+        WHERE item_id = ? AND {snapshot_type_sql()} = '{TRADE_SNAPSHOT}' AND updated_at >= ?
         ORDER BY updated_at ASC, id ASC
     """, (item_id, since))
     return [dict(r) for r in await cur.fetchall()]
@@ -286,11 +287,11 @@ async def get_item_history(db: aiosqlite.Connection, item_id: int, days: int = 9
 
 async def compute_daily_summary(db: aiosqlite.Connection, item_id: int) -> None:
     await db.execute("DELETE FROM daily_summary WHERE item_id = ?", (item_id,))
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT substr(updated_at, 1, 10) AS day, AVG(sell_price) AS avg_price, MIN(sell_price) AS min_price,
                MAX(sell_price) AS max_price, SUM(COALESCE(volume_24h, 0)) AS volume_total, COUNT(*) AS snapshot_count
         FROM price_snapshots
-        WHERE item_id = ? AND COALESCE(snapshot_type, 'trade') = 'trade' AND sell_price IS NOT NULL
+        WHERE item_id = ? AND {snapshot_type_sql()} = '{TRADE_SNAPSHOT}' AND sell_price IS NOT NULL
         GROUP BY substr(updated_at, 1, 10)
         ORDER BY day ASC
     """, (item_id,))
@@ -342,14 +343,14 @@ async def get_all_alerts(db: aiosqlite.Connection) -> list[dict[str, Any]]:
 
 
 async def get_triggered_alerts(db: aiosqlite.Connection) -> list[dict[str, Any]]:
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT a.id, a.item_id, a.target_price, a.enabled, a.created_at, i.market_hash_name, i.name_cn, i.icon_url,
                q.sell_price AS current_price, q.updated_at AS price_updated_at
         FROM price_alerts a
         JOIN items i ON i.id = a.item_id
         JOIN price_snapshots q ON q.id = (
             SELECT q2.id FROM price_snapshots q2
-            WHERE q2.item_id = i.id AND q2.snapshot_type = 'quote'
+            WHERE q2.item_id = i.id AND q2.snapshot_type = '{QUOTE_SNAPSHOT}'
             ORDER BY q2.updated_at DESC, q2.id DESC LIMIT 1
         )
         WHERE a.enabled = 1 AND q.sell_price <= a.target_price
@@ -418,7 +419,7 @@ async def add_purchase(db: aiosqlite.Connection, item_id: int, buy_price: float,
 
 
 async def get_purchases(db: aiosqlite.Connection) -> list[dict[str, Any]]:
-    cur = await db.execute("""
+    cur = await db.execute(f"""
         SELECT p.*, i.market_hash_name, i.name_cn, i.icon_url, q.sell_price AS current_price,
                CASE WHEN q.sell_price IS NOT NULL THEN (q.sell_price - p.buy_price) * p.quantity ELSE NULL END AS pnl,
                CASE WHEN q.sell_price IS NOT NULL AND p.buy_price > 0 THEN (q.sell_price - p.buy_price) / p.buy_price * 100 ELSE NULL END AS pnl_pct
@@ -426,7 +427,7 @@ async def get_purchases(db: aiosqlite.Connection) -> list[dict[str, Any]]:
         JOIN items i ON i.id = p.item_id
         LEFT JOIN price_snapshots q ON q.id = (
             SELECT q2.id FROM price_snapshots q2
-            WHERE q2.item_id = i.id AND q2.snapshot_type = 'quote'
+            WHERE q2.item_id = i.id AND q2.snapshot_type = '{QUOTE_SNAPSHOT}'
             ORDER BY q2.updated_at DESC, q2.id DESC LIMIT 1
         )
         ORDER BY p.buy_date DESC, p.id DESC

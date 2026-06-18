@@ -28,10 +28,11 @@ from display import _pad_display, _price_label
 from engine import engine
 from price_semantics import QUOTE_SNAPSHOT, validate_quote_price
 from scrapers import SteamScraper
-from update_policy import decide_update, format_remaining
+from update_policy import decide_update, format_remaining, parse_db_time
 
 EventSink = Callable[[dict], Awaitable[None]]
 LogSink = Callable[[str, str], None]
+HOT_SEEN_RECENT_HOURS = 24
 
 @dataclass(slots=True)
 class SteamUpdateOptions:
@@ -48,6 +49,15 @@ def _noop_log(section: str, message: str) -> None:
 
 async def _noop_event(data: dict) -> None:
     return None
+
+
+def _row_get(row, key: str, index: int):
+    if row is None:
+        return None
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return row[index]
 
 
 async def save_steam_history(db, scraper: SteamScraper, item_id: int, market_hash_name: str) -> dict:
@@ -105,7 +115,7 @@ class SteamUpdateRunner:
                     results["discovered"] = len(hot_item_ids)
                 await db.commit()
 
-                db_items, policy_stats = await self._select_update_items(db, options, hot_item_ids)
+                db_items, policy_stats = await self._select_update_items(db, options, hot_item_ids, log_sink=log_sink)
                 results["skipped"] = policy_stats["skipped"]
                 results["hot_bypass"] = policy_stats["hot_bypass"]
                 total = len(db_items)
@@ -156,6 +166,7 @@ class SteamUpdateRunner:
         hot_item_ids: set[int] = set()
         keywords = ["", "Treasure", "Immortal", "Arcana", "Set", "Courier", "Ward", "Taunt"]
         seen = set()
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=HOT_SEEN_RECENT_HOURS)
         async with self.scraper_factory(delay=1.5) as disc_scraper:
             for kw in keywords:
                 try:
@@ -168,7 +179,8 @@ class SteamUpdateRunner:
                         "keyword": kw,
                         "found": len(items),
                     })
-                    before_count = len(hot_item_ids)
+                    new_count = 0
+                    recent_count = 0
                     duplicate_count = 0
                     for item in items:
                         mhn = item.get("market_hash_name", "")
@@ -176,6 +188,12 @@ class SteamUpdateRunner:
                             duplicate_count += 1
                             continue
                         seen.add(mhn)
+                        existing_cursor = await db.execute(
+                            "SELECT id, last_hot_seen_at FROM items WHERE market_hash_name = ?",
+                            (mhn,),
+                        )
+                        existing = await existing_cursor.fetchone()
+                        previous_hot_at = parse_db_time(_row_get(existing, "last_hot_seen_at", 1))
                         item_id = await get_or_create_item(
                             db,
                             mhn,
@@ -184,6 +202,10 @@ class SteamUpdateRunner:
                             rarity=item.get("rarity") or "",
                         )
                         hot_item_ids.add(int(item_id))
+                        if previous_hot_at and previous_hot_at >= recent_cutoff:
+                            recent_count += 1
+                        else:
+                            new_count += 1
                         await mark_item_hot_seen(db, int(item_id))
                         await event_sink({
                             "type": "item",
@@ -192,17 +214,24 @@ class SteamUpdateRunner:
                             "name_cn": item.get("name_cn") or "",
                             "icon_url": item.get("icon_url") or "",
                         })
-                    new_count = len(hot_item_ids) - before_count
                     log_sink(
                         "发现",
                         f"{_pad_display(label, 10)} | 搜索结果 {len(items):>3} | "
-                        f"本次新增 {new_count:>3} | 重复 {duplicate_count:>3} | 累计命中 {len(hot_item_ids):>3}",
+                        f"新命中 {new_count:>3} | 近期已命中 {recent_count:>3} | "
+                        f"本轮重复 {duplicate_count:>3} | 累计命中 {len(hot_item_ids):>3}",
                     )
                 except Exception as exc:
                     log_sink("发现", f"异常 | {kw or '热门'} | {exc}")
         return hot_item_ids
 
-    async def _select_update_items(self, db, options: SteamUpdateOptions, hot_item_ids: set[int]) -> tuple[list[dict], dict]:
+    async def _select_update_items(
+        self,
+        db,
+        options: SteamUpdateOptions,
+        hot_item_ids: set[int],
+        *,
+        log_sink: LogSink = _noop_log,
+    ) -> tuple[list[dict], dict]:
         item_limit = None if options.item_ids is not None or hot_item_ids else options.limit
         db_items = await get_monitored_items(db, limit=item_limit)
         policy_stats = {"skipped": 0, "hot_bypass": 0}
@@ -231,6 +260,8 @@ class SteamUpdateRunner:
             if not decision.allow:
                 policy_stats["skipped"] += 1
                 reason = f"{decision.reason}，还需 {format_remaining(decision.remaining_seconds)}"
+                name_display = item.get("name_cn") or item.get("market_hash_name") or str(item_id)
+                log_sink("跳过", f"{_pad_display(name_display, 34)} | {reason}")
             else:
                 selected.append(item)
                 if decision.reason == "Steam 热门命中":

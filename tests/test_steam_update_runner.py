@@ -11,6 +11,22 @@ if BACKEND not in sys.path:
 from steam_update import SteamUpdateOptions, SteamUpdateRunner
 
 
+class FakeCursor:
+    def __init__(self, row=None):
+        self.row = row
+
+    async def fetchone(self):
+        return self.row
+
+
+class FakeDiscoveryDb:
+    def __init__(self, existing):
+        self.existing = existing
+
+    async def execute(self, _sql, params=()):
+        return FakeCursor(self.existing.get(params[0]))
+
+
 class FakeTrendEngine:
     def load_history(self, rows):
         self.rows = rows
@@ -48,6 +64,10 @@ class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner = SteamUpdateRunner(scraper_factory=FakeDiscoverScraper, trend_engine=FakeTrendEngine())
         logs = []
         ids = {"popular-a": 1, "popular-b": 2, "treasure-c": 3}
+        db = FakeDiscoveryDb({
+            "popular-a": {"id": 1, "last_hot_seen_at": "2999-01-01 00:00:00"},
+            "popular-b": {"id": 2, "last_hot_seen_at": None},
+        })
 
         async def fake_get_or_create(_db, market_hash_name, **_kwargs):
             return ids[market_hash_name]
@@ -57,18 +77,19 @@ class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
             patch("steam_update.mark_item_hot_seen", new=AsyncMock()),
         ):
             hot_ids = await runner._discover_items(
-                None,
+                db,
                 event_sink=AsyncMock(),
                 log_sink=lambda section, message: logs.append((section, message)),
             )
 
         self.assertEqual(hot_ids, {1, 2, 3})
         self.assertIn("热门", logs[1][1])
-        self.assertIn("本次新增   2", logs[1][1])
+        self.assertIn("新命中   1", logs[1][1])
+        self.assertIn("近期已命中   1", logs[1][1])
         self.assertIn("累计命中   2", logs[1][1])
         self.assertIn("Treasure", logs[2][1])
-        self.assertIn("本次新增   1", logs[2][1])
-        self.assertIn("重复   1", logs[2][1])
+        self.assertIn("新命中   1", logs[2][1])
+        self.assertIn("本轮重复   1", logs[2][1])
         self.assertIn("累计命中   3", logs[2][1])
 
     async def test_visible_scope_includes_hot_items(self):
@@ -116,6 +137,31 @@ class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item["id"] for item in selected], [2])
         self.assertEqual(stats["skipped"], 1)
+
+    async def test_cooldown_skips_are_logged(self):
+        items = [
+            {"id": 1, "market_hash_name": "visible-low", "name_cn": "低分饰品", "favorite": 0, "update_after": "2999-01-01 00:00:00"},
+            {"id": 2, "market_hash_name": "visible-high", "name_cn": "高分饰品", "favorite": 0, "update_after": None},
+        ]
+        runner = SteamUpdateRunner(trend_engine=FakeTrendEngine())
+        logs = []
+
+        with (
+            patch("steam_update.get_monitored_items", new=AsyncMock(return_value=items)),
+            patch("steam_update.get_steam_history", new=AsyncMock(return_value=[])),
+            patch("steam_update.get_update_protected_item_ids", new=AsyncMock(return_value=set())),
+            patch("steam_update.update_item_update_policy", new=AsyncMock()),
+        ):
+            selected, stats = await runner._select_update_items(
+                None,
+                SteamUpdateOptions(item_ids={1, 2}),
+                hot_item_ids=set(),
+                log_sink=lambda section, message: logs.append((section, message)),
+            )
+
+        self.assertEqual([item["id"] for item in selected], [2])
+        self.assertEqual(stats["skipped"], 1)
+        self.assertTrue(any(section == "跳过" and "低分饰品" in message for section, message in logs))
 
     async def test_score_scope_filters_existing_monitored_items(self):
         items = [

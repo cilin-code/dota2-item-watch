@@ -1124,10 +1124,25 @@ async function refreshOne(id, btn) {
 
 
 // Check if update was in progress - reconnect SSE
-(function() {
+(async function() {
     if (!localStorage.getItem("update_running")) { loadData(); loadStats(); return; }
     var savedItemIds = localStorage.getItem("update_item_ids") || "";
     if (!savedItemIds) {
+        localStorage.removeItem("update_running");
+        localStorage.removeItem("update_item_ids");
+        loadData(); loadStats();
+        return;
+    }
+    try {
+        var sr = await fetch("/api/update-status");
+        var sd = await sr.json();
+        if (!sd.running) {
+            localStorage.removeItem("update_running");
+            localStorage.removeItem("update_item_ids");
+            loadData(); loadStats();
+            return;
+        }
+    } catch(e) {
         localStorage.removeItem("update_running");
         localStorage.removeItem("update_item_ids");
         loadData(); loadStats();
@@ -1142,7 +1157,7 @@ async function refreshOne(id, btn) {
     if (ub) { ub.disabled = true; ub.textContent = "更新中..."; }
     fill.style.width = "0%";
     var delay = parseFloat(document.getElementById("delaySelect").value) || 1.5;
-    var es = new EventSource("/api/fetch?delay=" + delay + "&limit=300&discover=true&min_score=0&item_ids=" + encodeURIComponent(savedItemIds));
+    var es = new EventSource("/api/fetch?delay=" + delay + "&limit=300&discover=true&min_score=0&reconnect=true&item_ids=" + encodeURIComponent(savedItemIds));
     es.addEventListener("phase", function(e) { handleSSE(JSON.parse(e.data)); });
     es.addEventListener("item", function(e) { handleSSE(JSON.parse(e.data)); });
     es.addEventListener("progress", function(e) { handleSSE(JSON.parse(e.data)); });

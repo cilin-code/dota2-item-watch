@@ -22,13 +22,18 @@ class FakeTrendEngine:
 class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_visible_scope_includes_hot_items(self):
         items = [
-            {"id": 1, "market_hash_name": "visible"},
-            {"id": 2, "market_hash_name": "hidden"},
-            {"id": 3, "market_hash_name": "new"},
+            {"id": 1, "market_hash_name": "visible", "favorite": 0, "update_after": None},
+            {"id": 2, "market_hash_name": "hidden", "favorite": 0, "update_after": None},
+            {"id": 3, "market_hash_name": "new", "favorite": 0, "update_after": None},
         ]
         runner = SteamUpdateRunner(trend_engine=FakeTrendEngine())
 
-        with patch("steam_update.get_monitored_items", new=AsyncMock(return_value=items)):
+        with (
+            patch("steam_update.get_monitored_items", new=AsyncMock(return_value=items)),
+            patch("steam_update.get_steam_history", new=AsyncMock(return_value=[])),
+            patch("steam_update.get_update_protected_item_ids", new=AsyncMock(return_value=set())),
+            patch("steam_update.update_item_update_policy", new=AsyncMock()),
+        ):
             selected, stats = await runner._select_update_items(
                 None,
                 SteamUpdateOptions(item_ids={1}),
@@ -37,6 +42,29 @@ class SteamUpdateRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item["id"] for item in selected], [1, 3])
         self.assertEqual(stats["skipped"], 0)
+
+    async def test_visible_scope_still_applies_low_score_cooldown(self):
+        items = [
+            {"id": 1, "market_hash_name": "visible-low", "favorite": 0, "update_after": "2999-01-01 00:00:00"},
+            {"id": 2, "market_hash_name": "visible-high", "favorite": 0, "update_after": None},
+            {"id": 3, "market_hash_name": "outside", "favorite": 0, "update_after": None},
+        ]
+        runner = SteamUpdateRunner(trend_engine=FakeTrendEngine())
+
+        with (
+            patch("steam_update.get_monitored_items", new=AsyncMock(return_value=items)),
+            patch("steam_update.get_steam_history", new=AsyncMock(return_value=[])),
+            patch("steam_update.get_update_protected_item_ids", new=AsyncMock(return_value=set())),
+            patch("steam_update.update_item_update_policy", new=AsyncMock()),
+        ):
+            selected, stats = await runner._select_update_items(
+                None,
+                SteamUpdateOptions(item_ids={1, 2}),
+                hot_item_ids=set(),
+            )
+
+        self.assertEqual([item["id"] for item in selected], [2])
+        self.assertEqual(stats["skipped"], 1)
 
     async def test_score_scope_filters_existing_monitored_items(self):
         items = [

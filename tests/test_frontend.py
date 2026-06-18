@@ -21,6 +21,14 @@ class FrontendBehaviorTests(unittest.TestCase):
         self.assertIn("getVisibleItems().map", source)
         self.assertIn("if (!_dataLoaded)", source)
 
+    def test_update_reconnect_does_not_start_new_batch(self):
+        index_html = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
+        source = index_html.read_text(encoding="utf-8")
+
+        self.assertIn('fetch("/api/update-status")', source)
+        self.assertIn("!sd.running", source)
+        self.assertIn("reconnect=true", source)
+
     def test_update_done_text_uses_trade_points_label(self):
         index_html = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
         source = index_html.read_text(encoding="utf-8")

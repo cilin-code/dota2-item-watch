@@ -18,11 +18,20 @@ class SseQueueTests(unittest.TestCase):
 
         self.assertIn("hot_item_ids.add", source)
         self.assertIn("mark_item_hot_seen", source)
-        self.assertIn("update_ids = set(options.item_ids) | hot_item_ids", source)
+        self.assertIn("scoped_ids = set(options.item_ids or set()) | hot_item_ids", source)
+
+    def test_reconnect_fetch_does_not_start_new_update(self):
+        source = (Path(ROOT) / "backend" / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("reconnect: bool = Query(False)", source)
+        self.assertIn("if reconnect:", source)
+        self.assertIn("asyncio.create_task(_run_fetch", source)
 
     def test_parse_item_ids_ignores_invalid_values(self):
         self.assertEqual(_parse_item_ids("1, 2, bad, -3, 0, 4"), {1, 2, 4})
-        self.assertEqual(_parse_item_ids(""), set())
+        self.assertIsNone(_parse_item_ids(""))
+        self.assertIsNone(_parse_item_ids("   "))
+        self.assertIsNone(_parse_item_ids("bad, -3, 0"))
         self.assertIsNone(_parse_item_ids(None))
 
     def test_queue_update_event_drops_oldest_when_full(self):

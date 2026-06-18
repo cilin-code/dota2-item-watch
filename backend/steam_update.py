@@ -201,9 +201,9 @@ class SteamUpdateRunner:
         item_limit = None if options.item_ids is not None or hot_item_ids else options.limit
         db_items = await get_monitored_items(db, limit=item_limit)
         policy_stats = {"skipped": 0, "hot_bypass": 0}
+        scoped_ids = set(options.item_ids or set()) | hot_item_ids
         if options.item_ids is not None:
-            update_ids = set(options.item_ids) | hot_item_ids
-            return [it for it in db_items if int(it["id"]) in update_ids], policy_stats
+            db_items = [it for it in db_items if int(it["id"]) in scoped_ids]
 
         self.engine.load_history(await get_steam_history(db, days=90))
         scored = {int(r["id"]): float(r["score"]) for r in self.engine.recommendations(min_score=0)}

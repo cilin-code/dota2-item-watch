@@ -439,6 +439,7 @@ async def trigger_fetch(
     delay: float = Query(3.0),
     min_score: int = Query(0),
     item_ids: str = Query(""),
+    reconnect: bool = Query(False),
 ):
     """批量更新所有饰品数据 (SSE 流，后台任务)。"""
     global _update_running, _update_task, _update_events
@@ -448,8 +449,11 @@ async def trigger_fetch(
     selected_item_ids = _parse_item_ids(item_ids)
 
     if _update_task is None or _update_task.done():
-        _update_events = []
-        _update_task = asyncio.create_task(_run_fetch(limit, discover, delay, min_score, selected_item_ids))
+        if reconnect:
+            _queue_update_event(queue, {"type": "done", "results": {"steam": 0, "history": 0, "discovered": 0, "skipped": 0, "errors": []}})
+        else:
+            _update_events = []
+            _update_task = asyncio.create_task(_run_fetch(limit, discover, delay, min_score, selected_item_ids))
     else:
         for event in list(_update_events):
             _queue_update_event(queue, event)
@@ -475,7 +479,7 @@ async def trigger_fetch(
 
 
 def _parse_item_ids(value: str | None) -> set[int] | None:
-    if value is None:
+    if value is None or not value.strip():
         return None
     ids = set()
     for part in value.split(","):
@@ -488,7 +492,7 @@ def _parse_item_ids(value: str | None) -> set[int] | None:
             continue
         if item_id > 0:
             ids.add(item_id)
-    return ids
+    return ids or None
 
 
 def _queue_update_event(queue: asyncio.Queue, data: dict) -> None:

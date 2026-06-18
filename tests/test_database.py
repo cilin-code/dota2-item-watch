@@ -152,6 +152,33 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(rows[0]["pnl"], 1.48)
         self.assertEqual(rows[0]["pnl_pct"], 74.0)
 
+    def test_periodic_analysis_reports_turning_intervals_and_intraday_timing(self):
+        async def scenario():
+            db = await database.get_db()
+            try:
+                item_id = await database.get_or_create_item(db, "Cycle Item", name_cn="Cycle Item")
+                prices = [1.0, 1.4, 1.0, 1.4, 1.0, 1.4, 1.0, 1.4, 1.0, 1.4, 1.0, 1.4, 1.0, 1.4]
+                for idx, price in enumerate(prices, start=1):
+                    day = f"2026-01-{idx:02d}"
+                    await database.upsert_price(db, item_id, "steam", price, price, 2, f"{day} 08:00:00")
+                    await database.upsert_price(db, item_id, "steam", price + 0.2, price + 0.2, 2, f"{day} 20:00:00")
+                await database.compute_daily_summary(db, item_id)
+                await db.commit()
+                result = await database.get_periodic_analysis(db, item_id, days=3650)
+            finally:
+                await db.close()
+            return result
+
+        result = run(with_temp_db(temp_test_dir(self._testMethodName), scenario))
+
+        self.assertTrue(result["has_cycle"])
+        self.assertEqual(result["volatility"]["avg_interval_days"], 1.0)
+        self.assertEqual(result["peaks"]["avg_interval_days"], 2.0)
+        self.assertEqual(result["troughs"]["avg_interval_days"], 2.0)
+        self.assertEqual(result["intraday"]["buy_label"], "08:00")
+        self.assertEqual(result["intraday"]["sell_label"], "20:00")
+        self.assertTrue(result["recommendations"]["buy"])
+
 
 if __name__ == "__main__":
 

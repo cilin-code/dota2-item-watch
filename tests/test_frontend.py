@@ -43,6 +43,15 @@ class FrontendBehaviorTests(unittest.TestCase):
         self.assertIn("num(r.pnl_pct) + '%", source)
         self.assertIn("r.net_sell_price", source)
 
+    def test_detail_periodic_panel_shows_cycle_and_intraday_signals(self):
+        detail_html = Path(__file__).resolve().parents[1] / "frontend" / "detail.html"
+        source = detail_html.read_text(encoding="utf-8")
+
+        self.assertIn("波动间隔", source)
+        self.assertIn("波峰周期", source)
+        self.assertIn("买入时间", source)
+        self.assertIn("p.intraday", source)
+
 
 if __name__ == "__main__":
     unittest.main()

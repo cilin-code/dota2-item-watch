@@ -56,7 +56,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .trend-table{width:100%;border-collapse:collapse;font-size:13px}
 .trend-table th{text-align:left;color:var(--muted);font-size:10px;font-weight:700;padding:8px 10px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.05em}
 .trend-table td{padding:8px 10px;font-family:"JetBrains Mono",Consolas,"SF Mono",monospace;font-weight:600}
-.change.up{color:#10b981;background:rgba(16,185,129,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.down{color:#ef4444;background:rgba(239,68,68,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.flat{color:var(--muted);padding:2px 6px}.periodic-panel{grid-column:1/-1}.periodic-bars{display:flex;gap:6px;align-items:flex-end;height:100px;padding:4px 0}.periodic-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}.periodic-bar{width:100%;max-width:48px;border-radius:4px 4px 0 0;transition:height .3s;min-height:4px;background:var(--panel-2)}.periodic-bar.best{background:var(--green)}.periodic-bar-label{font-size:10px;color:var(--muted)}.periodic-bar-value{font-size:9px;color:var(--weak)}.periodic-summary{font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}.periodic-summary b{color:var(--accent)}
+.change.up{color:#10b981;background:rgba(16,185,129,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.down{color:#ef4444;background:rgba(239,68,68,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.flat{color:var(--muted);padding:2px 6px}.periodic-panel{grid-column:1/-1}.periodic-bars{display:flex;gap:6px;align-items:flex-end;height:100px;padding:4px 0}.periodic-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}.periodic-bar{width:100%;max-width:48px;border-radius:4px 4px 0 0;transition:height .3s;min-height:4px;background:var(--panel-2)}.periodic-bar.best{background:var(--green)}.periodic-bar-label{font-size:10px;color:var(--muted)}.periodic-bar-value{font-size:9px;color:var(--weak)}.periodic-summary{font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}.periodic-summary b{color:var(--accent)}.periodic-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}.periodic-metric{border:1px solid var(--line);background:rgba(139,148,158,.06);border-radius:8px;padding:10px}.periodic-metric .k{font-size:11px;color:var(--muted);margin-bottom:5px}.periodic-metric .v{font-family:"JetBrains Mono",Consolas,"SF Mono",monospace;font-size:16px;font-weight:800;color:var(--accent)}.periodic-metric .s{font-size:10px;color:var(--weak);margin-top:4px}.periodic-advice{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.periodic-advice div{border:1px solid var(--line);border-radius:8px;padding:10px;background:rgba(240,136,62,.06);font-size:12px;color:var(--muted)}.periodic-advice b{display:block;color:var(--text);font-size:13px;margin-bottom:4px}
 .loading{text-align:center;padding:80px;color:var(--muted);font-size:14px}
 footer{max-width:1200px;margin:0 auto;padding:0 32px 28px;color:var(--weak);font-size:11px}
 .rank-S { color: #ff6b35; font-weight: 800; text-shadow: 0 0 8px rgba(255,107,53,.4); }
@@ -310,28 +310,37 @@ async function loadPeriodic(itemId){
         if(d.code!==0||!d.data)return;
         var p=d.data;
         var h="";
-        // Weekday bars
-        if(p.weekday&&p.weekday.length){
+        function days(v){return v==null?"-":Number(v).toFixed(1)+" 天"}
+        h+="<div class=\"periodic-grid\">";
+        h+="<div class=\"periodic-metric\"><div class=\"k\">波动间隔</div><div class=\"v\">"+days(p.volatility&&p.volatility.avg_interval_days)+"</div><div class=\"s\">相邻拐点平均间隔</div></div>";
+        h+="<div class=\"periodic-metric\"><div class=\"k\">波峰周期</div><div class=\"v\">"+days(p.peaks&&p.peaks.avg_interval_days)+"</div><div class=\"s\">每几天出现高点</div></div>";
+        h+="<div class=\"periodic-metric\"><div class=\"k\">波谷周期</div><div class=\"v\">"+days(p.troughs&&p.troughs.avg_interval_days)+"</div><div class=\"s\">每几天出现低点</div></div>";
+        h+="<div class=\"periodic-metric\"><div class=\"k\">日内价差</div><div class=\"v\">"+(p.intraday&&p.intraday.spread_pct!=null?Number(p.intraday.spread_pct).toFixed(2)+"%":"-")+"</div><div class=\"s\">按小时均价估算</div></div>";
+        h+="</div>";
+        h+="<div class=\"periodic-advice\"><div><b>买入时间</b>"+esc((p.recommendations&&p.recommendations.buy)||"-")+"</div><div><b>卖出时间</b>"+esc((p.recommendations&&p.recommendations.sell)||"-")+"</div></div>";
+        if(p.weekly&&p.weekly.length){
             var maxAvg=0;
-            p.weekday.forEach(function(w){if(w.avg>maxAvg)maxAvg=w.avg;});
-            h+="<div style=\"margin-bottom:12px\"><b>周内规律</b></div>";
+            p.weekly.forEach(function(w){if(w.avg_price>maxAvg)maxAvg=w.avg_price;});
+            h+="<div style=\"margin:14px 0 8px\"><b>周内均价规律</b></div>";
             h+="<div class=\"periodic-bars\">";
-            p.weekday.forEach(function(w){
-                var hPct=w.avg?(w.avg/maxAvg*100):0;
-                var cls=w.day===p.best_day?"best":"";
-                h+="<div class=\"periodic-bar-wrap\"><div class=\"periodic-bar "+cls+"\" style=\"height:"+hPct+"%\"></div><div class=\"periodic-bar-label\">"+w.day+"</div><div class=\"periodic-bar-value\">"+(w.avg?"¥"+w.avg:"-")+"</div></div>";
+            var names=["一","二","三","四","五","六","日"];
+            var minAvg=Math.min.apply(null,p.weekly.map(function(w){return w.avg_price;}));
+            p.weekly.forEach(function(w){
+                var hPct=w.avg_price?(w.avg_price/maxAvg*100):0;
+                var cls=w.avg_price===minAvg?"best":"";
+                h+="<div class=\"periodic-bar-wrap\"><div class=\"periodic-bar "+cls+"\" style=\"height:"+hPct+"%\"></div><div class=\"periodic-bar-label\">周"+names[w.weekday]+"</div><div class=\"periodic-bar-value\">"+(w.avg_price?"¥"+Number(w.avg_price).toFixed(2):"-")+"</div></div>";
             });
             h+="</div>";
         }
-        // Summary
         h+="<div class=\"periodic-summary\">";
-        if(p.best_day)h+="最佳买入日: <b>"+p.best_day+"</b> &nbsp; ";
-        if(p.best_week)h+="最佳买入周: <b>"+p.best_week+"</b> &nbsp; ";
-        h+="样本: <b>"+p.sample_days+"</b> 天</div>";
+        h+="分析天数: <b>"+(p.days||0)+"</b> &nbsp; ";
+        h+="周期强度: <b>"+(p.strength_pct!=null?Number(p.strength_pct).toFixed(2)+"%":"-")+"</b> &nbsp; ";
+        h+="拐点数: <b>"+((p.turning_points&&p.turning_points.length)||0)+"</b></div>";
         var el=document.getElementById("periodicContent");
         if(el)el.innerHTML=h;
     }catch(e){}
 }
+
 
 load();
 </script>

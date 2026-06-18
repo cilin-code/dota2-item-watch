@@ -464,23 +464,105 @@ async def delete_purchase(db: aiosqlite.Connection, purchase_id: int) -> bool:
 
 async def get_periodic_analysis(db: aiosqlite.Connection, item_id: int, days: int = 180) -> dict[str, Any]:
     rows = await get_daily_summary(db, item_id, days=days)
+    empty = {"has_cycle": False, "days": days, "weekly": [], "monthly": [], "turning_points": [], "intraday": {}}
     if len(rows) < 14:
-        return {"has_cycle": False, "message": "样本不足", "days": days, "weekly": [], "monthly": []}
+        return {**empty, "message": "样本不足，暂时无法判断周期"}
+
     by_weekday: dict[int, list[float]] = defaultdict(list)
     by_month_day: dict[int, list[float]] = defaultdict(list)
-    vals = []
+    vals: list[float] = []
+    daily_points: list[dict[str, Any]] = []
     for r in rows:
         if r.get("avg_price") is None:
             continue
         day = datetime.strptime(r["date"], "%Y-%m-%d")
         price = float(r["avg_price"])
         vals.append(price)
+        daily_points.append({"date": r["date"], "day": day, "price": price})
         by_weekday[day.weekday()].append(price)
         by_month_day[day.day].append(price)
     if not vals:
-        return {"has_cycle": False, "days": days, "weekly": [], "monthly": []}
+        return empty
+
     overall = sum(vals) / len(vals)
     weekly = [{"weekday": k, "avg_price": round(sum(v) / len(v), 4), "diff_pct": round((sum(v) / len(v) - overall) / overall * 100, 2), "samples": len(v)} for k, v in sorted(by_weekday.items()) if v]
     monthly = [{"day": k, "avg_price": round(sum(v) / len(v), 4), "diff_pct": round((sum(v) / len(v) - overall) / overall * 100, 2), "samples": len(v)} for k, v in sorted(by_month_day.items()) if len(v) >= 2]
     strongest = max([abs(x["diff_pct"]) for x in weekly + monthly], default=0)
-    return {"has_cycle": strongest >= 3, "days": days, "overall_avg": round(overall, 4), "weekly": weekly, "monthly": monthly, "strength_pct": round(strongest, 2)}
+
+    turning_points = []
+    for idx in range(1, len(daily_points) - 1):
+        prev_price = daily_points[idx - 1]["price"]
+        price = daily_points[idx]["price"]
+        next_price = daily_points[idx + 1]["price"]
+        if price >= prev_price and price > next_price:
+            turning_points.append({"type": "peak", "date": daily_points[idx]["date"], "price": round(price, 4)})
+        elif price <= prev_price and price < next_price:
+            turning_points.append({"type": "trough", "date": daily_points[idx]["date"], "price": round(price, 4)})
+
+    def interval_summary(points: list[dict[str, Any]]) -> dict[str, Any]:
+        parsed = [datetime.strptime(p["date"], "%Y-%m-%d") for p in points]
+        intervals = [(parsed[i] - parsed[i - 1]).days for i in range(1, len(parsed))]
+        return {
+            "avg_interval_days": round(sum(intervals) / len(intervals), 1) if intervals else None,
+            "intervals": intervals[-8:],
+            "dates": [p["date"] for p in points[-8:]],
+            "count": len(points),
+        }
+
+    peaks = [p for p in turning_points if p["type"] == "peak"]
+    troughs = [p for p in turning_points if p["type"] == "trough"]
+    volatility = interval_summary(turning_points)
+    peak_summary = interval_summary(peaks)
+    trough_summary = interval_summary(troughs)
+
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = await db.execute(f"""
+        SELECT CAST(substr(updated_at, 12, 2) AS INTEGER) AS hour,
+               AVG(sell_price) AS avg_price,
+               COUNT(*) AS samples
+        FROM price_snapshots
+        WHERE item_id = ? AND {snapshot_type_sql()} = '{TRADE_SNAPSHOT}' AND sell_price IS NOT NULL AND updated_at >= ?
+        GROUP BY CAST(substr(updated_at, 12, 2) AS INTEGER)
+        HAVING samples >= 2
+        ORDER BY hour ASC
+    """, (item_id, since))
+    hourly = []
+    for r in await cur.fetchall():
+        hour = int(r["hour"])
+        avg_price = float(r["avg_price"])
+        hourly.append({
+            "hour": hour,
+            "label": f"{hour:02d}:00",
+            "avg_price": round(avg_price, 4),
+            "diff_pct": round((avg_price - overall) / overall * 100, 2),
+            "samples": int(r["samples"]),
+        })
+    buy_hour = min(hourly, key=lambda x: x["avg_price"]) if hourly else None
+    sell_hour = max(hourly, key=lambda x: x["avg_price"]) if hourly else None
+    intraday = {
+        "buy_hour": buy_hour["hour"] if buy_hour else None,
+        "buy_label": buy_hour["label"] if buy_hour else None,
+        "sell_hour": sell_hour["hour"] if sell_hour else None,
+        "sell_label": sell_hour["label"] if sell_hour else None,
+        "spread_pct": round((sell_hour["avg_price"] - buy_hour["avg_price"]) / overall * 100, 2) if buy_hour and sell_hour and overall else None,
+        "hourly": hourly,
+    }
+
+    has_cycle = strongest >= 3 or volatility["avg_interval_days"] is not None or bool(intraday.get("spread_pct") and abs(intraday["spread_pct"]) >= 2)
+    return {
+        "has_cycle": has_cycle,
+        "days": days,
+        "overall_avg": round(overall, 4),
+        "weekly": weekly,
+        "monthly": monthly,
+        "strength_pct": round(strongest, 2),
+        "turning_points": turning_points[-16:],
+        "volatility": volatility,
+        "peaks": peak_summary,
+        "troughs": trough_summary,
+        "intraday": intraday,
+        "recommendations": {
+            "buy": f"{intraday['buy_label']} 附近历史成交均价较低" if intraday.get("buy_label") else "日内样本不足，暂时无法判断买入时间",
+            "sell": f"{intraday['sell_label']} 附近历史成交均价较高" if intraday.get("sell_label") else "日内样本不足，暂时无法判断卖出时间",
+        },
+    }

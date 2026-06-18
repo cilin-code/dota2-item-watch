@@ -13,13 +13,12 @@ from main import _parse_item_ids, _queue_update_event
 
 
 class SseQueueTests(unittest.TestCase):
-    def test_run_fetch_updates_visible_and_newly_discovered_items(self):
+    def test_run_fetch_updates_visible_and_hot_items(self):
         source = (Path(ROOT) / "backend" / "steam_update.py").read_text(encoding="utf-8")
 
-        self.assertIn("existing_cur = await db.execute", source)
-        self.assertIn("if not existing:", source)
-        self.assertIn("discovered_item_ids.add", source)
-        self.assertIn("update_ids = set(options.item_ids) | discovered_item_ids", source)
+        self.assertIn("hot_item_ids.add", source)
+        self.assertIn("mark_item_hot_seen", source)
+        self.assertIn("update_ids = set(options.item_ids) | hot_item_ids", source)
 
     def test_parse_item_ids_ignores_invalid_values(self):
         self.assertEqual(_parse_item_ids("1, 2, bad, -3, 0, 4"), {1, 2, 4})

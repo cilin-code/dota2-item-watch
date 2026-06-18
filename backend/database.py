@@ -55,6 +55,10 @@ async def init_db() -> None:
                 updated_at TIMESTAMP,
                 fetched_at TIMESTAMP,
                 market_updated_at TIMESTAMP,
+                update_after TIMESTAMP,
+                update_cooldown_reason TEXT,
+                last_score REAL,
+                last_hot_seen_at TIMESTAMP,
                 orderbook_json TEXT,
                 orderbook_updated_at TIMESTAMP
             )
@@ -142,6 +146,10 @@ async def _ensure_columns(db: aiosqlite.Connection) -> None:
         "updated_at": "ALTER TABLE items ADD COLUMN updated_at TIMESTAMP",
         "fetched_at": "ALTER TABLE items ADD COLUMN fetched_at TIMESTAMP",
         "market_updated_at": "ALTER TABLE items ADD COLUMN market_updated_at TIMESTAMP",
+        "update_after": "ALTER TABLE items ADD COLUMN update_after TIMESTAMP",
+        "update_cooldown_reason": "ALTER TABLE items ADD COLUMN update_cooldown_reason TEXT",
+        "last_score": "ALTER TABLE items ADD COLUMN last_score REAL",
+        "last_hot_seen_at": "ALTER TABLE items ADD COLUMN last_hot_seen_at TIMESTAMP",
         "orderbook_json": "ALTER TABLE items ADD COLUMN orderbook_json TEXT",
         "orderbook_updated_at": "ALTER TABLE items ADD COLUMN orderbook_updated_at TIMESTAMP",
     }.items():
@@ -215,6 +223,26 @@ async def update_item_market_metadata(db: aiosqlite.Connection, item_id: int, *,
             orderbook_json = COALESCE(?, orderbook_json), orderbook_updated_at = COALESCE(?, orderbook_updated_at)
         WHERE id = ?
     """, (fetched_at, fetched_at, market_updated_at, json.dumps(orderbook, ensure_ascii=False) if orderbook else None, orderbook_updated_at, item_id))
+
+
+async def mark_item_hot_seen(db: aiosqlite.Connection, item_id: int, seen_at: str | None = None) -> None:
+    await db.execute("UPDATE items SET last_hot_seen_at = ? WHERE id = ?", (seen_at or _utc_now(), item_id))
+
+
+async def update_item_update_policy(db: aiosqlite.Connection, item_id: int, *, score: float | None, update_after: str | None, reason: str | None) -> None:
+    await db.execute(
+        "UPDATE items SET last_score = ?, update_after = ?, update_cooldown_reason = ? WHERE id = ?",
+        (score, update_after, reason, item_id),
+    )
+
+
+async def get_update_protected_item_ids(db: aiosqlite.Connection) -> set[int]:
+    protected: set[int] = set()
+    cur = await db.execute("SELECT item_id FROM purchase_records")
+    protected.update(int(r[0]) for r in await cur.fetchall())
+    cur = await db.execute("SELECT item_id FROM price_alerts WHERE enabled = 1")
+    protected.update(int(r[0]) for r in await cur.fetchall())
+    return protected
 
 
 async def get_monitored_items(db: aiosqlite.Connection, limit: int | None = None) -> list[dict[str, Any]]:

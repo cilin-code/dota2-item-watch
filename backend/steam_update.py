@@ -17,7 +17,10 @@ from database import (
     get_monitored_items,
     get_or_create_item,
     get_steam_history,
+    get_update_protected_item_ids,
+    mark_item_hot_seen,
     update_all_chinese_names,
+    update_item_update_policy,
     update_item_market_metadata,
     upsert_price,
 )
@@ -25,6 +28,7 @@ from display import _pad_display, _price_label
 from engine import engine
 from price_semantics import QUOTE_SNAPSHOT, validate_quote_price
 from scrapers import SteamScraper
+from update_policy import decide_update, format_remaining
 
 EventSink = Callable[[dict], Awaitable[None]]
 LogSink = Callable[[str, str], None]
@@ -92,20 +96,33 @@ class SteamUpdateRunner:
         log_sink: LogSink = _noop_log,
     ) -> dict:
         db = await self.db_factory()
-        results = {"steam": 0, "history": 0, "discovered": 0, "errors": []}
-        discovered_item_ids: set[int] = set()
+        results = {"steam": 0, "history": 0, "discovered": 0, "skipped": 0, "hot_bypass": 0, "errors": []}
+        hot_item_ids: set[int] = set()
         try:
             async with self.scraper_factory(delay=options.delay) as scraper:
                 if options.discover:
-                    discovered_item_ids = await self._discover_items(db, event_sink, log_sink)
-                    results["discovered"] = len(discovered_item_ids)
+                    hot_item_ids = await self._discover_items(db, event_sink, log_sink)
+                    results["discovered"] = len(hot_item_ids)
                 await db.commit()
 
-                db_items = await self._select_update_items(db, options, discovered_item_ids)
+                db_items, policy_stats = await self._select_update_items(db, options, hot_item_ids)
+                results["skipped"] = policy_stats["skipped"]
+                results["hot_bypass"] = policy_stats["hot_bypass"]
                 total = len(db_items)
-                scope = "当前显示 + 本轮新增" if options.item_ids is not None else "全部监控"
-                log_sink("更新", f"阶段 2/2 | 更新价格 | 范围 {scope} | 数量 {total}")
-                await event_sink({"type": "phase", "platform": "steam", "status": "prices", "total": total})
+                scope = "当前显示 + 热门命中" if options.item_ids is not None else "全部监控"
+                log_sink(
+                    "更新",
+                    f"阶段 2/2 | 更新价格 | 范围 {scope} | 可更新 {total} | "
+                    f"冷却跳过 {policy_stats['skipped']} | 热门绕过 {policy_stats['hot_bypass']}",
+                )
+                await event_sink({
+                    "type": "phase",
+                    "platform": "steam",
+                    "status": "prices",
+                    "total": total,
+                    "skipped": policy_stats["skipped"],
+                    "hot_bypass": policy_stats["hot_bypass"],
+                })
 
                 count, history_count = await self._update_prices(
                     db,
@@ -128,7 +145,7 @@ class SteamUpdateRunner:
             log_sink(
                 "更新",
                 f"完成 | 现价 {results['steam']} | 成交点 {results['history']} | "
-                f"新增 {results['discovered']} | 错误 {len(results['errors'])}",
+                f"热门命中 {results['discovered']} | 冷却跳过 {results['skipped']} | 错误 {len(results['errors'])}",
             )
             await event_sink({"type": "done", "results": results})
         return results
@@ -136,7 +153,7 @@ class SteamUpdateRunner:
     async def _discover_items(self, db, event_sink: EventSink, log_sink: LogSink) -> set[int]:
         log_sink("更新", "阶段 1/2 | 搜索 Steam 热门饰品")
         await event_sink({"type": "phase", "platform": "steam", "status": "discover"})
-        discovered_item_ids: set[int] = set()
+        hot_item_ids: set[int] = set()
         keywords = ["", "Treasure", "Immortal", "Arcana", "Set", "Courier", "Ward", "Taunt"]
         seen = set()
         async with self.scraper_factory(delay=1.5) as disc_scraper:
@@ -146,7 +163,7 @@ class SteamUpdateRunner:
                     label = kw or "热门"
                     log_sink(
                         "发现",
-                        f"{_pad_display(label, 10)} | 搜索结果 {len(items):>3} | 本轮新增 {len(discovered_item_ids):>3}",
+                        f"{_pad_display(label, 10)} | 搜索结果 {len(items):>3} | 热门命中 {len(hot_item_ids):>3}",
                     )
                     await event_sink({
                         "type": "phase",
@@ -160,8 +177,6 @@ class SteamUpdateRunner:
                         if mhn in seen:
                             continue
                         seen.add(mhn)
-                        existing_cur = await db.execute("SELECT id FROM items WHERE market_hash_name = ?", (mhn,))
-                        existing = await existing_cur.fetchone()
                         item_id = await get_or_create_item(
                             db,
                             mhn,
@@ -169,8 +184,8 @@ class SteamUpdateRunner:
                             icon_url=item.get("icon_url") or "",
                             rarity=item.get("rarity") or "",
                         )
-                        if not existing:
-                            discovered_item_ids.add(int(item_id))
+                        hot_item_ids.add(int(item_id))
+                        await mark_item_hot_seen(db, int(item_id))
                         await event_sink({
                             "type": "item",
                             "platform": "steam",
@@ -180,18 +195,49 @@ class SteamUpdateRunner:
                         })
                 except Exception as exc:
                     log_sink("发现", f"异常 | {kw or '热门'} | {exc}")
-        return discovered_item_ids
+        return hot_item_ids
 
-    async def _select_update_items(self, db, options: SteamUpdateOptions, discovered_item_ids: set[int]) -> list[dict]:
-        db_items = await get_monitored_items(db, limit=None if options.item_ids is not None else options.limit)
+    async def _select_update_items(self, db, options: SteamUpdateOptions, hot_item_ids: set[int]) -> tuple[list[dict], dict]:
+        item_limit = None if options.item_ids is not None or hot_item_ids else options.limit
+        db_items = await get_monitored_items(db, limit=item_limit)
+        policy_stats = {"skipped": 0, "hot_bypass": 0}
         if options.item_ids is not None:
-            update_ids = set(options.item_ids) | discovered_item_ids
-            return [it for it in db_items if int(it["id"]) in update_ids]
-        if options.min_score > 0:
-            self.engine.load_history(await get_steam_history(db, days=90))
-            scored = {r["id"]: r["score"] for r in self.engine.recommendations(min_score=0)}
-            return [it for it in db_items if scored.get(it["id"], 0) >= options.min_score]
-        return db_items
+            update_ids = set(options.item_ids) | hot_item_ids
+            return [it for it in db_items if int(it["id"]) in update_ids], policy_stats
+
+        self.engine.load_history(await get_steam_history(db, days=90))
+        scored = {int(r["id"]): float(r["score"]) for r in self.engine.recommendations(min_score=0)}
+        protected_item_ids = await get_update_protected_item_ids(db)
+        now = datetime.now(timezone.utc)
+        selected: list[dict] = []
+        for item in db_items:
+            item_id = int(item["id"])
+            score = scored.get(item_id, 0.0)
+            if options.min_score > 0 and score < options.min_score and item_id not in hot_item_ids:
+                continue
+            decision = decide_update(
+                item,
+                score=score,
+                now=now,
+                hot_item_ids=hot_item_ids,
+                protected_item_ids=protected_item_ids,
+            )
+            reason = decision.reason
+            if not decision.allow:
+                policy_stats["skipped"] += 1
+                reason = f"{decision.reason}，还需 {format_remaining(decision.remaining_seconds)}"
+            else:
+                selected.append(item)
+                if decision.reason == "Steam 热门命中":
+                    policy_stats["hot_bypass"] += 1
+            await update_item_update_policy(
+                db,
+                item_id,
+                score=score,
+                update_after=decision.update_after,
+                reason=reason,
+            )
+        return selected, policy_stats
 
     async def _update_prices(
         self,

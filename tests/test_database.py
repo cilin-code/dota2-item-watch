@@ -37,6 +37,22 @@ def temp_test_dir(name):
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_items_table_has_update_policy_columns(self):
+        async def scenario():
+            db = await database.get_db()
+            try:
+                cur = await db.execute("PRAGMA table_info(items)")
+                return {row[1] for row in await cur.fetchall()}
+            finally:
+                await db.close()
+
+        cols = run(with_temp_db(temp_test_dir(self._testMethodName), scenario))
+
+        self.assertIn("update_after", cols)
+        self.assertIn("update_cooldown_reason", cols)
+        self.assertIn("last_score", cols)
+        self.assertIn("last_hot_seen_at", cols)
+
     def test_compute_daily_summary_upserts_per_item_day(self):
         async def scenario():
             db = await database.get_db()

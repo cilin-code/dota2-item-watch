@@ -1076,7 +1076,7 @@ function handleSSE(data) {
         localStorage.removeItem("update_running");
         localStorage.removeItem("update_item_ids");
         cur.classList.remove("active");
-        label.textContent = "更新完成! 现价: " + (data.results.steam || 0) + " 件, 成交点: " + (data.results.history || 0) + " 条, 新增: " + (data.results.discovered || 0) + " 件";
+        label.textContent = "更新完成! 现价: " + (data.results.steam || 0) + " 件, 成交点: " + (data.results.history || 0) + " 条, 热门命中: " + (data.results.discovered || 0) + " 件, 冷却跳过: " + (data.results.skipped || 0) + " 件";
         fill.style.width = "100%";
     } else if (data.type === "ratelimited") {
         localStorage.removeItem("update_running");

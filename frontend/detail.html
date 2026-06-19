@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>饰品详情</title>
+<script src="/static/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel-2:#1c2333;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--weak:#6e7681;--accent:#f0883e;--accent2:#e3b341;--green:#3fb950;--amber:#d29922;--red:#f85149;--glow:rgba(240,136,62,.12)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Inter","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);background-image:radial-gradient(ellipse at 20% 0%,rgba(240,136,62,.04) 0%,transparent 50%),radial-gradient(ellipse at 80% 100%,rgba(227,179,65,.03) 0%,transparent 50%);color:var(--text);min-height:100vh;letter-spacing:.01em}
+header{border-bottom:1px solid var(--line);background:rgba(22,27,34,.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);position:sticky;top:0;z-index:50}
+.header-inner{margin:0 auto;padding:16px 32px;display:flex;align-items:center;gap:16px}
+.back{color:var(--accent);text-decoration:none;font-size:13px;font-weight:500;transition:opacity .15s}
+.back:hover{opacity:.8}
+h1{font-size:18px;font-weight:700}
+main{margin:0 auto;padding:24px 32px 40px}
+.hero{display:flex;gap:24px;align-items:center;margin-bottom:24px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;transition:border-color .2s}
+.hero:hover{border-color:rgba(45,212,191,.25)}
+.hero img{width:88px;height:88px;border-radius:12px;background:#0d1116;object-fit:cover;border:1px solid var(--line)}
+.hero-info{flex:1}
+.hero-name{font-size:22px;font-weight:750}
+.hero-hash{color:var(--weak);font-size:12px;margin-top:6px;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hero-rarity{color:var(--muted);font-size:12px;margin-top:4px}
+.hero-price{font-family:"JetBrains Mono",Consolas,"SF Mono",monospace;font-size:32px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-top:8px}
+button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);height:36px;padding:0 14px;cursor:pointer;font-size:13px;font-weight:500;transition:all .2s ease}
+button:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 12px var(--glow)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;transition:border-color .2s}
+.card:hover{border-color:rgba(45,212,191,.2)}
+.card-title{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:14px;text-transform:uppercase;letter-spacing:.06em}
+.chart-card{grid-column:1/-1}
+.chart-toggle{display:inline-flex;gap:0;margin-left:10px}
+.chart-toggle button{height:28px;padding:0 12px;font-size:11px;border-radius:0;font-weight:600}
+.chart-toggle button:first-child{border-radius:6px 0 0 6px}
+.chart-toggle button:last-child{border-radius:0 6px 6px 0}
+.chart-toggle button.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#0b0f19;font-weight:700}
+.kv{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(30,45,61,.5);font-size:13px}
+.kv:last-child{border-bottom:none}
+.kv .k{color:var(--muted)}
+.kv .v{font-family:"JetBrains Mono",Consolas,"SF Mono",monospace;font-weight:700}
+.badge{display:inline-block;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700}
+.badge.recommend{color:var(--green);border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.08)}
+.badge.observe{color:var(--amber);border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08)}
+.badge.reject{color:var(--red);border:1px solid rgba(248,113,113,.3);background:rgba(248,113,113,.08)}
+.tag{display:inline-block;padding:2px 7px;margin:2px 3px 0 0;border-radius:4px;font-size:10px;font-weight:600;color:var(--accent);background:rgba(45,212,191,.1);border:1px solid rgba(45,212,191,.15)}
+.tags{margin-top:8px}
+.confidence{display:inline-block;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:700}
+.confidence.high{color:var(--green);border:1px solid rgba(52,211,153,.25);background:rgba(52,211,153,.06)}
+.confidence.medium{color:var(--amber);border:1px solid rgba(251,191,36,.25);background:rgba(251,191,36,.06)}
+.confidence.low{color:var(--muted);border:1px solid var(--line)}
+.reject-list{list-style:none;padding:0}
+.reject-list li{padding:5px 0;color:var(--red);font-size:13px}
+.reject-list li::before{content:"✕ "}
+.trend-table{width:100%;border-collapse:collapse;font-size:13px}
+.trend-table th{text-align:left;color:var(--muted);font-size:10px;font-weight:700;padding:8px 10px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.05em}
+.trend-table td{padding:8px 10px;font-family:"JetBrains Mono",Consolas,"SF Mono",monospace;font-weight:600}
+.change.up{color:#10b981;background:rgba(16,185,129,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.down{color:#ef4444;background:rgba(239,68,68,.12);padding:2px 6px;border-radius:4px;font-weight:600}.change.flat{color:var(--muted);padding:2px 6px}.periodic-panel{grid-column:1/-1}.periodic-bars{display:flex;gap:6px;align-items:flex-end;height:100px;padding:4px 0}.periodic-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}.periodic-bar{width:100%;max-width:48px;border-radius:4px 4px 0 0;transition:height .3s;min-height:4px;background:var(--panel-2)}.periodic-bar.best{background:var(--green)}.periodic-bar-label{font-size:10px;color:var(--muted)}.periodic-bar-value{font-size:9px;color:var(--weak)}.periodic-summary{font-size:12px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}.periodic-summary b{color:var(--accent)}
+.loading{text-align:center;padding:80px;color:var(--muted);font-size:14px}
+footer{max-width:1200px;margin:0 auto;padding:0 32px 28px;color:var(--weak);font-size:11px}
+.rank-S { color: #ff6b35; font-weight: 800; text-shadow: 0 0 8px rgba(255,107,53,.4); }
+.rank-A { color: #f0883e; font-weight: 700; }
+.rank-B { color: #3fb950; font-weight: 600; }
+.rank-C { color: #58a6ff; font-weight: 500; }
+.rank-D { color: #d29922; }
+.rank-E { color: #8b949e; }
+.confidence { display: inline-block; padding: 3px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.confidence.S { color: #ff6b35; border: 1px solid rgba(255,107,53,.3); background: rgba(255,107,53,.08); }
+.confidence.A { color: #f0883e; border: 1px solid rgba(240,136,62,.3); background: rgba(240,136,62,.08); }
+.confidence.B { color: #3fb950; border: 1px solid rgba(63,185,80,.3); background: rgba(63,185,80,.08); }
+.confidence.C { color: #58a6ff; border: 1px solid rgba(88,166,255,.3); background: rgba(88,166,255,.08); }
+.confidence.D { color: #d29922; border: 1px solid rgba(210,153,34,.3); background: rgba(210,153,34,.08); }
+.confidence.E { color: #8b949e; border: 1px solid rgba(139,148,158,.3); background: rgba(139,148,158,.08); }
+.badge.strong-recommend{color:#0b0f19;border:1px solid var(--accent);background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:800}
+.reason-tags{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end;max-width:300px}.reason-tag{display:inline-flex;max-width:100%;padding:2px 7px;border-radius:5px;font-size:11px;line-height:1.4;border:1px solid var(--line);background:rgba(139,148,158,.08);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reason-tag.good{color:var(--green);border-color:rgba(63,185,80,.35);background:rgba(63,185,80,.09)}.reason-tag.warn{color:var(--amber);border-color:rgba(210,153,34,.38);background:rgba(210,153,34,.09)}.reason-tag.danger{color:var(--red);border-color:rgba(248,81,73,.38);background:rgba(248,81,73,.09)}.reason-tag.info{color:#58a6ff;border-color:rgba(88,166,255,.35);background:rgba(88,166,255,.08)}
+
+</style>
+</head>
+<body>
+<header>
+    <div class="header-inner">
+        <a class="back" href="/">← 返回列表</a>
+        <h1 id="pageTitle">饰品详情</h1>
+    </div>
+</header>
+<main>
+    <div id="detail" class="loading">正在加载...</div>
+</main>
+<footer>数据来源：Steam Community Market，仅供分析参考。</footer>
+<script>
+function setStatus(s){var el=document.getElementById('detail');if(el)el.innerHTML='<div class="loading">'+s+'</div>';}
+function num(v){return v==null?"-":Number(v).toFixed(2)}
+function priceText(v){return v==null?"未获取":"¥"+num(v)}
+function reasonHtml(item){var details=item&&item.analysis&&item.analysis.reason_details;if(details&&details.length){return '<div class="reason-tags">'+details.map(function(d){var level=['good','warn','danger','info'].indexOf(d.level)>=0?d.level:'info';return '<span class="reason-tag '+level+'" title="'+esc(d.text||'')+'">'+esc(d.text||'')+'</span>';}).join('')+'</div>';}return '<span class="v" style="font-family:inherit;font-weight:400;max-width:240px;text-align:left">'+esc(item&&item.reason?item.reason:'-')+'</span>';}
+function esc(s){var d=document.createElement("div");d.textContent=s||"";return d.innerHTML}
+function fmtTime(t){if(!t)return"-";var d=new Date(String(t).replace(" ","T")+"Z");var diff=Date.now()-d.getTime();if(Number.isNaN(diff))return t;if(diff<60000)return"刚刚";if(diff<3600000)return Math.floor(diff/60000)+"分前";if(diff<86400000)return Math.floor(diff/3600000)+"时前";return String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function fmtDateShort(s){if(!s)return s;return s.substring(5,10)}
+function change(v){if(v==null)return'<span class="change flat">--</span>';var cls=v>0?"up":v<0?"down":"flat";return'<span class="change '+cls+'">'+(v>0?"+":"")+Number(v).toFixed(2)+'%</span>'}
+function steamLink(m){return"https://steamcommunity.com/market/listings/570/"+encodeURIComponent(m)}
+
+async function load(){
+    var parts=location.pathname.split("/");
+    var itemId=parts[parts.length-1];
+    try{
+        setStatus("正在获取饰品信息...");
+        var dr=await fetch("/api/items/"+itemId);
+        var detail=await dr.json();
+        if(detail.code!==0){setStatus(detail.message||"加载失败");return}
+        setStatus("正在获取历史价格...");
+        var hr=await fetch("/api/items/"+itemId+"/history?days=360");
+        var hist=await hr.json();
+        setStatus("正在渲染图表...");
+        render(detail.data,hist.data||[])
+        loadPeriodic(itemId);
+    }catch(e){
+        setStatus("加载失败: "+esc(String(e)));
+    }
+}
+
+function render(item,history){
+    var a=item.analysis||{};
+    document.getElementById("pageTitle").textContent=item.name_cn||item.market_hash_name;
+
+    var recText=item.recommendation||"-";
+    var recClass="reject";
+    var rank=recText.charAt(0);
+    if(rank==="S")recClass="rank-S";
+    else if(rank==="A")recClass="rank-A";
+    else if(rank==="B")recClass="rank-B";
+    else if(rank==="C")recClass="rank-C";
+    else if(rank==="D")recClass="rank-D";
+    else recClass="rank-E";
+
+    var tags=[];
+    if(a.volume_class==="THIN")tags.push("冷门饰品");
+    if(a.low_sample_risk)tags.push("样本不足");
+    if(a.low_volume_risk)tags.push("低交易量风险");
+    if(a.status==="RISING")tags.push("上涨趋势");
+    else if(a.status==="FALLING")tags.push("下跌趋势");
+    else if(a.status==="STABLE")tags.push("横盘稳定");
+    var tagsHtml=tags.length?'<div class="tags">'+tags.map(function(t){return'<span class="tag">'+esc(t)+'</span>'}).join("")+"</div>":"";
+
+    var conf=a.confidence||"-";
+    var confCls=conf==="HIGH"?"high":conf==="MEDIUM"?"medium":"low";
+
+    var rejectHtml="";
+    if(a.reject_reasons&&a.reject_reasons.length){
+        rejectHtml='<div class="card"><div class="card-title">未推荐原因</div><ul class="reject-list">'+a.reject_reasons.map(function(r){return"<li>"+esc(r)+"</li>"}).join("")+"</ul></div>"
+    }
+
+    var trendHtml="";
+    if(item.trend&&Object.keys(item.trend).length){
+        trendHtml='<table class="trend-table"><tr><th>周期</th><th>涨跌</th><th>均价</th><th>最低</th><th>最高</th><th>采样数</th></tr>';
+        ["3","7","15","30"].forEach(function(w){var t=item.trend[w];if(!t)return;trendHtml+="<tr><td>"+w+"日</td><td>"+change(t.change_pct)+"</td><td>¥"+num(t.avg_price)+"</td><td>¥"+num(t.low_price)+"</td><td>¥"+num(t.high_price)+"</td><td>"+(t.snapshots||0)+"</td></tr>"});
+        trendHtml+="</table>"
+    }
+
+    var h='';
+    h+='<div class="hero">';
+    if(item.icon_url)h+='<img src="'+esc(item.icon_url)+'" alt="">';
+    h+='<div class="hero-info">';
+    h+='<div class="hero-name">'+esc(item.name_cn||item.market_hash_name)+'</div>';
+    h+='<div class="hero-hash"><a href="'+steamLink(item.market_hash_name)+'" target="_blank" style="color:inherit;text-decoration:none">'+esc(item.market_hash_name)+'</a></div>';
+    if(item.rarity)h+='<div class="hero-rarity">'+esc(item.rarity)+'</div>';
+    h+=tagsHtml;
+    h+='</div>';
+    h+='<div style="text-align:right">';
+    h+='<div class="hero-price">'+priceText(item.current_price)+'</div>'; 
+    h+='<div style="margin-top:6px"><span class="badge '+recClass+'">'+esc(recText)+'</span></div>';
+    h+='<div style="margin-top:6px"><span class="confidence '+confCls+'">置信度: '+esc(conf)+'</span></div>';
+    h+='<div style="margin-top:4px;color:var(--weak);font-size:11px">更新: '+fmtTime(item.updated_at)+'</div>';
+    h+='<div style="margin-top:8px"><a href="'+steamLink(item.market_hash_name)+'" target="_blank"><button>Steam 市场</button></a></div>';
+    h+='</div></div>';
+
+    h+='<div class="card chart-card"><div class="card-title">历史价格走势<span class="chart-toggle"><button id="btnRaw" onclick="switchChart(\'raw\')" class="active">明细</button><button id="btnDaily" onclick="switchChart(\'daily\')">日均</button></span></div><div id="chartInfo" style="color:var(--weak);font-size:11px;margin-bottom:6px">共 '+history.length+' 条记录</div><canvas id="priceChart" height="240"></canvas></div>';
+
+    h+='<div class="grid">';
+    h+='<div class="card"><div class="card-title">推荐分析</div>';
+    h+='<div class="kv"><span class="k">评分</span><span class="v">'+(item.score||0)+'</span></div>';
+    h+='<div class="kv"><span class="k">建议</span><span class="v">'+esc(item.recommendation||"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">原因</span>'+reasonHtml(item)+'</div>'; 
+    h+='<div class="kv"><span class="k">置信度</span><span class="v"><span class="confidence '+confCls+'">'+esc(conf)+'</span></span></div>';
+    if(a.smart_price!=null)h+='<div class="kv"><span class="k">智能参考价</span><span class="v" style="color:var(--steam)">¥'+num(a.smart_price)+'</span></div>';
+    h+='</div>';
+
+    h+='<div class="card"><div class="card-title">技术指标</div>';
+    h+='<div class="kv"><span class="k">波动率 (CV)</span><span class="v">'+(a.cv!=null?Number(a.cv).toFixed(6):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">趋势状态</span><span class="v">'+esc(a.status||"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">斜率 (slope)</span><span class="v">'+(a.slope!=null?Number(a.slope).toFixed(6):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">R²</span><span class="v">'+(a.r_squared!=null?Number(a.r_squared).toFixed(4):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">EMA7</span><span class="v">'+(a.ma7!=null?"¥"+num(a.ma7):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">EMA30</span><span class="v">'+(a.ma30!=null?"¥"+num(a.ma30):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">布林上轨</span><span class="v">'+(a.bb_upper!=null?"¥"+num(a.bb_upper):"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">布林下轨</span><span class="v">'+(a.bb_lower!=null?"¥"+num(a.bb_lower):"-")+'</span></div>';
+    h+='</div>';
+
+    h+='<div class="card"><div class="card-title">价格位置</div>';
+    h+='<div class="kv"><span class="k">历史分位</span><span class="v">'+(a.price_percentile!=null?(a.price_percentile*100).toFixed(1)+"%":"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">近期分位</span><span class="v">'+(a.recent_percentile!=null?(a.recent_percentile*100).toFixed(1)+"%":"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">成交量</span><span class="v">'+(item.volume_24h||0)+'</span></div>';
+    h+='<div class="kv"><span class="k">流动性</span><span class="v">'+esc(a.volume_class||"-")+'</span></div>';
+    h+='<div class="kv"><span class="k">卖压</span><span class="v">'+(a.pressure!=null?Number(a.pressure).toFixed(2):"-")+'</span></div>';
+    h+='</div>';
+
+    if(rejectHtml)h+=rejectHtml;
+    if(trendHtml)h+='<div class="card" style="grid-column:1/-1"><div class="card-title">趋势窗口</div>'+trendHtml+'</div>';h+='<div class="card periodic-panel" id="periodicPanel"><div class="card-title">周期分析</div><div id="periodicContent" style="color:var(--muted);font-size:12px">加载中...</div></div>';
+    h+='</div>';
+
+    document.getElementById("detail").innerHTML=h;
+
+    window._hist=history;
+    window._chart=null;
+    if(history.length)drawChart("raw")
+}
+
+function calcEMA(v,s){if(!v.length)return[];var a=2/(s+1),r=[v[0]];for(var i=1;i<v.length;i++)r.push(v[i]*a+r[i-1]*(1-a));return r}
+
+function toDaily(hist){
+    var d={};
+    hist.forEach(function(x){
+        var k=x.updated_at.substring(0,10);
+        var p=x.sell_price||x.buy_price||0;
+        if(!d[k])d[k]={p:[],v:[]};
+        d[k].p.push(p);
+        d[k].v.push(x.volume_24h||0)
+    });
+    var r=[];
+    Object.keys(d).sort().forEach(function(k){
+        var o=d[k];
+        var avg=o.p.reduce(function(a,b){return a+b},0)/o.p.length;
+        r.push({date:k,avg:Math.round(avg*100)/100,hi:Math.max.apply(null,o.p),lo:Math.min.apply(null,o.p)})
+    });
+    return r
+}
+
+function switchChart(mode){
+    var rb=document.getElementById("btnRaw");
+    var db=document.getElementById("btnDaily");
+    if(rb)rb.className=mode==="raw"?"active":"";
+    if(db)db.className=mode==="daily"?"active":"";
+    drawChart(mode)
+}
+
+function drawChart(mode){
+    var hist=window._hist||[];
+    if(!hist.length)return;
+    var info=document.getElementById("chartInfo");
+    var labels,ds;
+    if(mode==="raw"){
+        var nowTs=Date.now();
+        var cutoff=new Date(nowTs);
+        cutoff.setDate(cutoff.getDate()-30);
+        var rawHist=hist.filter(function(x){
+            var t=new Date(String(x.updated_at).replace(" ","T")+"Z");
+            return !isNaN(t)&&t>=cutoff&&t.getTime()<=nowTs
+        });
+        labels=rawHist.map(function(x){
+            var d=new Date(String(x.updated_at).replace(" ","T")+"Z");
+            if(isNaN(d.getTime()))return String(x.updated_at).substring(5,16);
+            return (d.getMonth()+1).toString().padStart(2,"0")+"-"+d.getDate().toString().padStart(2,"0")+" "+d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0")
+        });
+        var vals=rawHist.map(function(x){return x.sell_price||x.buy_price||0});
+        var e7=calcEMA(vals,7),e30=calcEMA(vals,30);
+        ds=[
+            {label:"成交价",data:vals,borderColor:"#66c0f4",backgroundColor:"rgba(102,192,244,.08)",fill:true,tension:.2,pointRadius:0,borderWidth:1.5},
+            {label:"EMA7",data:e7,borderColor:"#4ade80",borderWidth:1,pointRadius:0,borderDash:[4,2]},
+            {label:"EMA30",data:e30,borderColor:"#e6b450",borderWidth:1,pointRadius:0,borderDash:[4,2]}
+        ];
+        if(info)info.textContent="近30天 "+rawHist.length+" 条记录，按小时显示"
+    }else{
+        var dy=toDaily(hist);
+        labels=dy.map(function(x){return x.date.substring(5)});
+        var avgs=dy.map(function(x){return x.avg});
+        var e7=calcEMA(avgs,7),e30=calcEMA(avgs,30);
+        ds=[
+            {label:"日均",data:avgs,borderColor:"#66c0f4",backgroundColor:"rgba(102,192,244,.08)",fill:true,tension:.3,pointRadius:2,pointBackgroundColor:"#66c0f4",borderWidth:1.5},
+            {label:"最高",data:dy.map(function(x){return x.hi}),borderColor:"rgba(102,192,244,.25)",borderWidth:1,pointRadius:0,borderDash:[2,2]},
+            {label:"最低",data:dy.map(function(x){return x.lo}),borderColor:"rgba(102,192,244,.25)",borderWidth:1,pointRadius:0,borderDash:[2,2]},
+            {label:"EMA7",data:e7,borderColor:"#4ade80",borderWidth:1,pointRadius:0,borderDash:[4,2]},
+            {label:"EMA30",data:e30,borderColor:"#e6b450",borderWidth:1,pointRadius:0,borderDash:[4,2]}
+        ];
+        if(info)info.textContent="近12个月 "+dy.length+" 天日均数据（原始 "+hist.length+" 条）"
+    }
+    if(typeof Chart==='undefined'){return}
+    try{
+        if(window._chart)window._chart.destroy();
+        var ctx=document.getElementById("priceChart").getContext("2d");
+        if(!ctx){return}
+        window._chart=new Chart(ctx,{
+            type:"line",
+            data:{labels:labels,datasets:ds},
+            options:{
+                responsive:true,
+                interaction:{mode:"index",intersect:false},
+                plugins:{legend:{labels:{color:"#8d9aa7",font:{size:11}}}},
+                scales:{
+                    x:{ticks:{color:"#62707e",maxTicksLimit:12,font:{size:10},maxRotation:45,autoSkip:true},grid:{color:"#1e2730"}},
+                    y:{ticks:{color:"#62707e",font:{size:10}},grid:{color:"#1e2730"}}
+                }
+            }
+        })
+    }catch(e){}
+}
+
+async function loadPeriodic(itemId){
+    try{
+        var r=await fetch("/api/items/"+itemId+"/periodic?days=360");
+        var d=await r.json();
+        if(d.code!==0||!d.data)return;
+        var p=d.data;
+        var h="";
+        // Weekday bars
+        if(p.weekday&&p.weekday.length){
+            var maxAvg=0;
+            p.weekday.forEach(function(w){if(w.avg>maxAvg)maxAvg=w.avg;});
+            h+="<div style=\"margin-bottom:12px\"><b>周内规律</b></div>";
+            h+="<div class=\"periodic-bars\">";
+            p.weekday.forEach(function(w){
+                var hPct=w.avg?(w.avg/maxAvg*100):0;
+                var cls=w.day===p.best_day?"best":"";
+                h+="<div class=\"periodic-bar-wrap\"><div class=\"periodic-bar "+cls+"\" style=\"height:"+hPct+"%\"></div><div class=\"periodic-bar-label\">"+w.day+"</div><div class=\"periodic-bar-value\">"+(w.avg?"¥"+w.avg:"-")+"</div></div>";
+            });
+            h+="</div>";
+        }
+        // Summary
+        h+="<div class=\"periodic-summary\">";
+        if(p.best_day)h+="最佳买入日: <b>"+p.best_day+"</b> &nbsp; ";
+        if(p.best_week)h+="最佳买入周: <b>"+p.best_week+"</b> &nbsp; ";
+        h+="样本: <b>"+p.sample_days+"</b> 天</div>";
+        var el=document.getElementById("periodicContent");
+        if(el)el.innerHTML=h;
+    }catch(e){}
+}
+
+load();
+</script>
+</body>
+</html>

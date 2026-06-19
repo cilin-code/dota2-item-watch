@@ -60,6 +60,24 @@ class FrontendBehaviorTests(unittest.TestCase):
         self.assertIn("买入时间", source)
         self.assertIn("p.intraday", source)
 
+    def test_theme_switching_assets_are_wired_on_main_and_detail_pages(self):
+        frontend = Path(__file__).resolve().parents[1] / "frontend"
+        index_source = (frontend / "index.html").read_text(encoding="utf-8")
+        detail_source = (frontend / "detail.html").read_text(encoding="utf-8")
+        theme_source = (frontend / "theme.js").read_text(encoding="utf-8")
+
+        for source in (index_source, detail_source):
+            self.assertIn('/static/theme.css', source)
+            self.assertIn('/static/theme.js', source)
+            self.assertIn('id="themeSelect"', source)
+            self.assertIn('localStorage.getItem("theme")', source)
+
+        self.assertIn("window.ThemeAPI", theme_source)
+        self.assertIn("getChartColors", theme_source)
+        self.assertIn("window.__themeOnChange", detail_source)
+        self.assertIn("getChartThemeColors", detail_source)
+        self.assertIn('window.ThemeAPI&&typeof window.ThemeAPI.getChartColors==="function"', detail_source)
+
 
 if __name__ == "__main__":
     unittest.main()

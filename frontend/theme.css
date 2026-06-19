@@ -1,0 +1,127 @@
+/* ============================================================
+   主题样式（暗色 / 浅色 / 护眼）— index.html 与 detail.html 共用
+   ------------------------------------------------------------
+   设计要点：
+   - 现有变量（--bg/--panel/--text/--accent…）在默认 :root 中
+     与各页面内联 :root 取值一致，保证暗色主题像素级不变。
+   - light / eye 通过更高特异性的 [data-theme] 选择器覆盖。
+   - 评分等级色（.score.sN / .rank-X / .confidence / 涨跌色）
+     在页面里是硬编码语义色，三套主题保持一致，此处不重写。
+   ============================================================ */
+
+/* ---------- 默认：暗色（原主题）---------- */
+:root {
+    /* 基础色板（与页面内联 :root 一致，作为权威源）*/
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2333;
+    --line: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --weak: #6e7681;
+    --accent: #f0883e;
+    --accent2: #e3b341;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+    --glow: rgba(240, 136, 62, .12);
+
+    /* 结构色（变量化原硬编码值，暗色下与原值完全相同）*/
+    --header-bg: rgba(22, 27, 34, .9);
+    --img-bg: #0d1116;
+    --progress-bg: #0d1116;
+    --grid-line: rgba(30, 45, 61, .6);
+    --scrollbar-thumb: #2a3a4a;
+    --bg-grad-1: rgba(240, 136, 62, .04);
+    --bg-grad-2: rgba(227, 179, 65, .03);
+    --btn-update-bg: #1e2a35;
+    --row-hover: rgba(45, 212, 191, .04);
+    --thead-grad-from: rgba(45, 212, 191, .06);
+    --teal-hover-border: rgba(45, 212, 191, .3);
+
+    /* 图表色（Chart.js 取用）*/
+    --chart-line: #66c0f4;
+    --chart-line-fill: rgba(102, 192, 244, .08);
+    --chart-line-soft: rgba(102, 192, 244, .25);
+    --chart-ema7: #4ade80;
+    --chart-ema30: #e6b450;
+    --chart-grid: #1e2730;
+    --chart-tick: #62707e;
+    --chart-legend: #8d9aa7;
+}
+
+/* ---------- 浅色简约风（GitHub Light 风格）---------- */
+:root[data-theme="light"] {
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --panel-2: #f0f3f6;
+    --line: #d0d7de;
+    --text: #1f2328;
+    --muted: #59636e;
+    --weak: #818b98;
+    --accent: #2f81f7;
+    --accent2: #6e40c9;
+    --green: #1a7f37;
+    --amber: #9a6700;
+    --red: #cf222e;
+    --glow: rgba(47, 129, 247, .14);
+
+    --header-bg: rgba(255, 255, 255, .9);
+    --img-bg: #e6e8eb;
+    --progress-bg: #dde1e6;
+    --grid-line: rgba(31, 35, 40, .12);
+    --scrollbar-thumb: #c2c8d0;
+    --bg-grad-1: rgba(47, 129, 247, .05);
+    --bg-grad-2: rgba(110, 64, 201, .04);
+    --btn-update-bg: #ddf0ff;
+    --row-hover: rgba(47, 129, 247, .05);
+    --thead-grad-from: rgba(47, 129, 247, .06);
+    --teal-hover-border: rgba(47, 129, 247, .4);
+
+    --chart-line: #2f81f7;
+    --chart-line-fill: rgba(47, 129, 247, .08);
+    --chart-line-soft: rgba(47, 129, 247, .3);
+    --chart-ema7: #1a7f37;
+    --chart-ema30: #9a6700;
+    --chart-grid: rgba(31, 35, 40, .08);
+    --chart-tick: #59636e;
+    --chart-legend: #59636e;
+}
+
+/* ---------- 墨绿护眼风（低饱和深绿）---------- */
+:root[data-theme="eye"] {
+    --bg: #0f1612;
+    --panel: #162019;
+    --panel-2: #1b2922;
+    --line: #2a3b32;
+    --text: #d1fae5;
+    --muted: #8fae9c;
+    --weak: #6b8a7a;
+    --accent: #34d399;
+    --accent2: #5eead4;
+    --green: #4ade80;
+    --amber: #d29922;
+    --red: #f87171;
+    --glow: rgba(52, 211, 153, .14);
+
+    --header-bg: rgba(22, 32, 25, .9);
+    --img-bg: #0a0f0c;
+    --progress-bg: #0a0f0c;
+    --grid-line: rgba(45, 70, 55, .5);
+    --scrollbar-thumb: #2c4338;
+    --bg-grad-1: rgba(52, 211, 153, .05);
+    --bg-grad-2: rgba(94, 234, 212, .04);
+    --btn-update-bg: #163024;
+    --row-hover: rgba(94, 234, 212, .05);
+    --thead-grad-from: rgba(94, 234, 212, .06);
+    --teal-hover-border: rgba(94, 234, 212, .4);
+
+    --chart-line: #5eead4;
+    --chart-line-fill: rgba(94, 234, 212, .08);
+    --chart-line-soft: rgba(94, 234, 212, .3);
+    --chart-ema7: #4ade80;
+    --chart-ema30: #fbbf24;
+    --chart-grid: #1e2e26;
+    --chart-tick: #8fae9c;
+    --chart-legend: #8fae9c;
+}

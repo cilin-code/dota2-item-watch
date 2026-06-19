@@ -4,22 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>饰品监测 - Steam 趋势监测</title>
+<script>
+// 防闪烁：在内联样式加载前立即设置主题，避免首屏闪白
+(function(){try{var t=localStorage.getItem("theme");if(t==="light"||t==="eye"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}})();
+</script>
 <script src="/static/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/theme.css">
 <style>
+/* 基础变量已移至 theme.css（暗色/浅色/护眼三套）。
+   :root 仅保留布局变量，主题切换不依赖内联样式。 */
 :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --panel-2: #1c2333;
-    --line: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --weak: #6e7681;
-    --accent: #f0883e;
-    --accent2: #e3b341;
-    --green: #3fb950;
-    --amber: #d29922;
-    --red: #f85149;
-    --glow: rgba(240,136,62,.12);
     --content-gutter: clamp(16px, 5.55vw, 80px);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -27,15 +21,15 @@ body {
     font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg);
     background-image:
-        radial-gradient(ellipse at 20% 0%, rgba(240,136,62,.04) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 100%, rgba(227,179,65,.03) 0%, transparent 50%);
+        radial-gradient(ellipse at 20% 0%, var(--bg-grad-1) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 100%, var(--bg-grad-2) 0%, transparent 50%);
     color: var(--text);
     min-height: 100vh;
     letter-spacing: .01em;
 }
 header {
     border-bottom: 1px solid var(--line);
-    background: rgba(22,27,34,.9);
+    background: var(--header-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     position: sticky; top: 0; z-index: 50;
@@ -84,13 +78,13 @@ button {
     transition: all .2s ease;
 }
 button:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 12px var(--glow); }
-#btnUpdate { background: #1e2a35; color: #f0883e; border-color: #f0883e; font-weight: 600; }
-#btnUpdate:hover { background: #f0883e; color: #0d1117; border-color: #f0883e; }
+#btnUpdate { background: var(--btn-update-bg); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+#btnUpdate:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 #btnClearData { color: var(--red); border-color: rgba(248,81,73,.45); }
 #btnClearData:hover { background: rgba(248,81,73,.12); color: var(--red); border-color: var(--red); }
 button.primary {
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-color: transparent; color: #0b0f19; font-weight: 700;
+    border-color: transparent; color: var(--bg); font-weight: 700;
 }
 button.primary:hover { opacity: .9; box-shadow: 0 0 20px rgba(45,212,191,.3); }
 button:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
@@ -101,7 +95,7 @@ main { margin: 0 auto; padding: 0; }
     border-radius: 12px; padding: 18px 20px;
     transition: border-color .2s;
 }
-.stat:hover { border-color: rgba(45,212,191,.3); }
+.stat:hover { border-color: var(--teal-hover-border); }
 .stat.clickable { cursor: pointer; }
 .stat.clickable:hover { border-color: var(--accent); }
 .stat.fav-active { border-color: var(--accent); box-shadow: 0 0 16px var(--glow); }
@@ -117,22 +111,22 @@ main { margin: 0 auto; padding: 0; }
 .progress-wrap { display: none; margin-bottom: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
 .progress-wrap.active { display: block; }
 .progress-label { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
-.progress { height: 6px; background: #0d1116; border-radius: 999px; overflow: hidden; }
+.progress { height: 6px; background: var(--progress-bg); border-radius: 999px; overflow: hidden; }
 .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 999px; transition: width .3s ease; }
 .current-item { display: none; margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
 .current-item.active { display: flex; align-items: center; gap: 12px; }
-.current-item img { width: 38px; height: 38px; border-radius: 8px; background: #0d1116; object-fit: cover; }
+.current-item img { width: 38px; height: 38px; border-radius: 8px; background: var(--img-bg); object-fit: cover; }
 .current-item .ci-name { font-weight: 600; }
 .current-item .ci-hash { color: var(--weak); font-size: 11px; margin-top: 2px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .current-item .ci-meta { color: var(--muted); margin-left: auto; font-size: 11px; }
 
 .table-scroll { overflow-x: auto; }
 table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13px; }
-thead { background: linear-gradient(180deg, rgba(45,212,191,.06), transparent); }
+thead { background: linear-gradient(180deg, var(--thead-grad-from), transparent); }
 th { padding: 10px 4px; text-align: center; vertical-align: middle; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; border-bottom: 1px solid var(--line); }
 th:first-child { text-align: left; padding-left: 16px; }
-td { padding: 8px 10px !important; border-top: 1px solid rgba(30,45,61,.6); vertical-align: middle; text-align: center; transition: background .15s; }
-tr:hover td { background: rgba(45,212,191,.04); }
+td { padding: 8px 10px !important; border-top: 1px solid var(--grid-line); vertical-align: middle; text-align: center; transition: background .15s; }
+tr:hover td { background: var(--row-hover); }
 .name, .reason { text-align: left; }
 .name-main { display: flex; align-items: center; gap: 10px; }
 .name-actions { display: flex; flex-direction: column; gap: 5px; margin-left: auto; flex-shrink: 0; }
@@ -142,7 +136,7 @@ tr:hover td { background: rgba(45,212,191,.04); }
     display: inline-grid; place-items: center;
     border: 1px solid rgba(139,148,158,.22);
     border-radius: 6px;
-    background: rgba(13,17,23,.45);
+    background: color-mix(in srgb, var(--img-bg) 45%, transparent);
     color: var(--weak);
     font-size: 13px; line-height: 1;
     text-decoration: none;
@@ -164,7 +158,7 @@ tr:hover td { background: rgba(45,212,191,.04); }
     box-shadow: none;
     transform: translateY(-1px);
 }
-.name-icon { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: #0d1116; flex-shrink: 0; }
+.name-icon { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--img-bg); flex-shrink: 0; }
 .name-text { flex: 1; min-width: 0; }
 .name { min-width: 120px; padding-left: 16px; padding-right: 8px; }
 .name a { color: var(--text); text-decoration: none; font-weight: 600; transition: color .15s; }
@@ -173,7 +167,7 @@ tr:hover td { background: rgba(45,212,191,.04); }
 .steam-link { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); text-decoration: none; margin-left: 6px; font-size: 11px; transition: color .15s; }
 .steam-link:hover { color: var(--accent); }
 .copy-btn { display: inline-flex; align-items: center; color: var(--weak); margin-left: 4px; font-size: 12px; cursor: pointer; transition: color .15s; background: none; border: none; padding: 2px 4px; border-radius: 4px; line-height: 1; }
-.copy-btn:hover { color: var(--accent); background: rgba(45,212,191,.08); }
+.copy-btn:hover { color: var(--accent); background: var(--row-hover); }
 .copy-btn.copied { color: var(--green); }
 .price, .num { text-align: center !important; padding: 8px 8px !important; font-variant-numeric: tabular-nums; font-weight: 650; }
 .score { display: inline-grid; place-items: center; min-width: 44px; height: 28px; border-radius: 6px; font-family: "JetBrains Mono", Consolas, "SF Mono", monospace; font-weight: 800; font-size: 13px; background: var(--panel-2); transition: all .2s; }
@@ -194,7 +188,7 @@ tr:hover td { background: rgba(45,212,191,.04); }
 .reason-tag.danger { color: var(--red); border-color: rgba(248,81,73,.38); background: rgba(248,81,73,.09); }
 .reason-tag.info { color: #58a6ff; border-color: rgba(88,166,255,.35); background: rgba(88,166,255,.08); }
 .reason-inner::-webkit-scrollbar { width: 3px; }
-.reason-inner::-webkit-scrollbar-thumb { background: #2a3a4a; border-radius: 3px; }
+.reason-inner::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
 .time { color: var(--weak); font-size: 11px; white-space: nowrap; }
 .action { white-space: nowrap; font-weight: 600; font-size: 12px; }
 .btn-refresh { width: 32px; height: 32px; padding: 0; border-radius: 8px; font-size: 13px; color: #38bdf8; border-color: rgba(56,189,248,.25); background: transparent; vertical-align: middle; } .btn-refresh:hover { background: rgba(56,189,248,.1); border-color: #38bdf8; }
@@ -251,8 +245,8 @@ th { vertical-align: middle; }
 .modal-box input[type=text]:focus,.modal-box input[type=number]:focus{border-color:var(--accent)}
 .modal-box input[type=number]{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);height:40px;padding:0 14px;font-size:14px;outline:none;transition:border-color .2s}
 .modal-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:all .15s}
-.modal-item:hover{border-color:var(--accent);background:rgba(45,212,191,.04)}
-.modal-item img{width:44px;height:44px;border-radius:8px;background:#0d1116;object-fit:cover}
+.modal-item:hover{border-color:var(--accent);background:var(--row-hover)}
+.modal-item img{width:44px;height:44px;border-radius:8px;background:var(--img-bg);object-fit:cover}
 .modal-item .mi-name{font-weight:600;font-size:13px}
 .modal-item .mi-hash{color:var(--weak);font-size:11px}
 .modal-item .mi-add{color:var(--accent);font-size:12px;font-weight:700;margin-left:auto;white-space:nowrap}
@@ -286,6 +280,11 @@ th { vertical-align: middle; }
             <div class="toolbar-group">
                 <span class="toolbar-label">记录</span>
                 <button onclick="openPurchaseList()">📊 买入记录</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="toolbar-group">
+                <span class="toolbar-label">主题</span>
+                <select class="delay-select" id="themeSelect"></select>
             </div>
             <div class="toolbar-divider"></div>
             <div class="toolbar-group">
@@ -1174,5 +1173,7 @@ async function refreshOne(id, btn) {
 })();
 
 </script>
+<script src="/static/theme.js"></script>
+<script>ThemeAPI.initTheme();</script>
 </body>
 </html>
